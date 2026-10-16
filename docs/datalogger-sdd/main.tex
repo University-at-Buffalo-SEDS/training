@@ -1,0 +1,71 @@
+% !TeX program = xelatex
+% Overleaf: select main.tex and XeLaTeX. No shell escape required.
+\documentclass[11pt,a4paper]{article}
+\usepackage[margin=22mm,headheight=15pt]{geometry}
+\usepackage{fontspec}
+\usepackage{lmodern}
+\usepackage{amsmath,amssymb}
+\usepackage{parskip}
+\usepackage{booktabs,longtable,tabularx,array}
+\usepackage{enumitem}
+\usepackage{xurl}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta,positioning,shapes.geometric}
+\usepackage{caption}
+\usepackage{placeins}
+\usepackage{fancyhdr}
+\usepackage[colorlinks=true,linkcolor=blue!45!black,urlcolor=blue!45!black]{hyperref}
+\usepackage{bookmark}
+\usepackage{ubseds-brand}
+\input{metadata.tex}
+\setlength{\emergencystretch}{3em}
+\setcounter{tocdepth}{2}
+\pagestyle{fancy}\fancyhf{}
+\fancyhead[L]{\small\ProjectName\ --- SDD}
+\fancyhead[R]{\small\DocumentID}
+\fancyfoot[L]{\small Version \DocumentVersion}
+\fancyfoot[R]{\thepage}
+\hypersetup{pdftitle={\ProjectName\ Software Design Document},pdfauthor={\DocumentAuthor}}
+\newcommand{\Guidance}[1]{\ifshowguidance\par\begingroup\small\color{SEDSBlue}\textbf{Author guidance:} #1\par\endgroup\fi}
+\newcommand{\TBD}[1]{\textbf{TBD:} #1}
+\newcommand{\Example}[1]{\textbf{Illustrative example only:} #1}
+\newcolumntype{Y}{>{\raggedright\arraybackslash}X}
+\newenvironment{SDDTable}[1]{\par\small\tabularx{\linewidth}{#1}\toprule}{\bottomrule\endtabularx\par\normalsize}
+\begin{document}
+\SEDSCover{\ProjectName}{\DocumentDate}{\DocumentStatus}{\DocumentID\ --- Version \DocumentVersion}{Prepared by \DocumentAuthor}
+\FloatBarrier
+\input{sections/00-document-control.tex}
+\clearpage\tableofcontents\clearpage\listoffigures\clearpage
+\pagenumbering{arabic}
+\FloatBarrier
+\input{sections/01-purpose-and-requirements.tex}
+\FloatBarrier
+\input{sections/02-context-and-architecture.tex}
+\FloatBarrier
+\input{sections/03-drivers-and-platform.tex}
+\FloatBarrier
+\input{sections/04-tasks-and-concurrency.tex}
+\FloatBarrier
+\input{sections/05-control-flow.tex}
+\FloatBarrier
+\input{sections/06-network-and-interfaces.tex}
+\FloatBarrier
+\input{sections/07-data-and-persistence.tex}
+\FloatBarrier
+\input{sections/08-update-and-recovery.tex}
+\FloatBarrier
+\input{sections/09-resources-and-timing.tex}
+\FloatBarrier
+\input{sections/10-faults-and-security.tex}
+\FloatBarrier
+\input{sections/11-build-and-deployment.tex}
+\FloatBarrier
+\input{sections/12-verification.tex}
+\FloatBarrier
+\input{sections/13-decisions-and-open-work.tex}
+\FloatBarrier
+\input{sections/14-references.tex}
+\appendix
+\FloatBarrier
+\input{sections/15-data-dictionary.tex}
+\end{document}

@@ -1,0 +1,17 @@
+\section{Build and deployment}
+The repository includes generated sources and middleware; no sibling project or runtime dependency download is needed. Install Python 3, CMake 3.22 or later, Ninja, GNU Arm GCC/G++/objcopy, and a selected flash utility on PATH. CubeCLT provides the ARM tools. Regeneration additionally requires CubeMX and the recorded firmware/middleware packs.
+\begin{verbatim}
+./build.py build --debug
+./build.py build --release
+./build.py flash --debug --method stm32prog-cli
+./build.py flash --debug --method dfu
+./build.py --help
+\end{verbatim}
+The helper is executable and adapted from DAQ-Board with network, telemetry, simulator, bootloader and OTA paths removed. On Windows use \texttt{py -3 build.py}; Python invocation also works on other platforms. Outputs are \texttt{build/Debug\_Script/datalogger.elf} and \texttt{.bin}, or the Release equivalent. CMake presets use separate \texttt{build/Debug} and \texttt{build/Release} directories.
+
+\subsection{Getting dfu-util}
+First run \texttt{dfu-util --version}. On macOS install Homebrew if needed, then \texttt{brew install dfu-util}. On Ubuntu/Debian run \texttt{sudo apt update} and \texttt{sudo apt install dfu-util}. On Windows extract the official Windows binary release, retain its supplied DLLs, add its executable directory to user PATH and open a new terminal. Follow the official libusb/WinUSB driver guidance for the DFU device, without replacing an unrelated device or CDC driver. See the repository README for clickable installation sources and troubleshooting.
+
+Enter STM32 ROM DFU using BOOT0/reset and the applicable boot option settings, connect a data cable, and run \texttt{dfu-util -l} before flashing. CDC enumeration alone is not DFU mode. Confirm the internal-flash alternate setting; the helper uses alternate 0. Connect only the intended DFU target because the helper does not select by serial number. Restore normal boot selection afterward if required. Linux USB access errors require suitable device permissions/udev rules. ST-LINK remains an alternative when ROM USB DFU is unavailable.
+
+Edit \texttt{datalogger.ioc} with project name datalogger and CMake/GCC output into the checkout root. Commit IOC and generated changes together. Keep custom logic in separate modules and preserved user sections; generated CMake is overwritten. Follow \texttt{BRANCHES.md}: start from updated main, one purpose per branch, review the diff, build both modes, open a PR, and obtain peer review before merge. Ignore build artifacts and machine-local settings.

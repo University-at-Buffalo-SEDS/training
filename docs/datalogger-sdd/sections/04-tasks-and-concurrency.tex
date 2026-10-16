@@ -1,0 +1,28 @@
+\section{Tasks, ownership, and synchronization}
+ThreadX uses smaller numeric priorities for higher urgency. Proposed workers use preemption threshold equal to priority and no time slice. Stacks below are byte allocations to measure, not measured maxima.
+\begin{SDDTable}{lclY}
+Worker & Priority & Stack & Trigger and responsibility\\\midrule
+Sensor & 5 & 2048 B & Absolute 10 ms deadlines; poll sensors and independently publish two raw copies.\\
+Processing & 10 & 4096 B & Wait on raw queue; convert/compensate, produce one result per accepted input.\\
+Data & 15 & 4096 B & Record/command event or flash deadline; own log allocation, persistence, recovery and deletion.\\
+USB adapter & 20 & 4096 B & Proposed infrastructure worker; bounded receive/transmit and command framing. Not a fourth application worker.\\
+\end{SDDTable}
+ThreadX timer and USBX internal workers are additional infrastructure. Inventory their actual priorities, stacks and memory pools during implementation. The generated USB application thread currently uses priority 10 and a 1024-byte stack; it is empty. Move its adapter work to the proposed budget when implementing the protocol.
+
+\subsection{Queue contracts}
+Each copied envelope is 64 bytes: 16 aligned 32-bit \texttt{ULONG} words. ThreadX message size is in words; backing-array size is in bytes. Compile-time assertions check both sizes. Initialize every byte; never enqueue pointers to temporary stack objects.
+\begin{SDDTable}{lrrY}
+Queue & Depth & Bytes & Producer / consumer\\\midrule
+\texttt{sensor\_to\_process} & 32 & 2048 & Sensor to processing.\\
+\texttt{records\_to\_data} & 128 & 8192 & Sensor and processing to data.\\
+\texttt{usb\_commands} & 8 & 512 & USB adapter to data.\\
+\texttt{usb\_responses} & 8 & 512 & Data to USB adapter; descriptors for owned chunks.\\
+\end{SDDTable}
+Sensor attempts both nonblocking sends even if the first fails. Drop the new message only on the saturated path; increment separate processing-delivery, raw-log and processed-log drop counters. Sequence gaps remain visible. USB queue saturation returns BUSY when a response can be delivered; a slow host cannot block data indefinitely.
+
+\subsection{Ownership and lock ordering}
+Create one \texttt{spi1\_mutex} with \texttt{TX\_INHERIT}. Hold it only during a complete wire transaction. Never hold it across sensor conversion, flash internal busy time, queue waits, USB I/O or another lock acquisition. Data alone owns flash state and session structures, so no storage lock is needed for other workers: they send requests. A brief control lock may protect a copied status snapshot, but is never held while taking SPI.
+
+Use static queue backing arrays and stacks, plus two 512-byte USB chunk buffers. A buffer moves FREE to DATA to USB to FREE; queue an index, length and generation, not a dangling pointer. Successful queue transfer passes ownership; failed transfer retains it. Disconnect cancels queued work and releases buffers only after active USB transfers complete or abort. No ISR allocates memory, performs blocking HAL SPI, logs synchronously, or runs program/erase operations.
+
+Data services up to eight record steps, advances one pending flash state, then one command step before checking other inputs again. A data event flag wakes it for records or commands; a bounded timed wait also services flash deadlines. It must never wait forever on one queue while work waits on another.

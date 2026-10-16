@@ -1,0 +1,16 @@
+\section{Decisions and open implementation work}\label{sec:open}
+\begin{SDDTable}{lYY}
+Decision/work & Owner role & Closure criterion\\\midrule
+Three application workers, one flash owner & Firmware lead & Implement ownership and queue contracts; peer review integration.\\
+1 kHz tick and timing & Platform developer & Update port reload and tick constant together; measured tick/jitter and regeneration check.\\
+USB memory and adapter & USB developer & Replace generated 1024-byte pools with measured sufficient budgets; successful USBX initialization and bounded I/O.\\
+Sensor configuration & Driver developer & Freeze range, bandwidth, oversampling, axis transform and calibration; golden vectors and physical tests.\\
+Metadata binary format & Storage developer & Versioned journal/session layout with power-cut tests and no ID reuse.\\
+Partial-page commit guarantee & Storage developer & Verify fitted-part constraints or select an alternative durable commit scheme before programming records.\\
+Rate and duration & Firmware lead/operator & Approve required run duration and sustained measured throughput; adjust rates/format if necessary.\\
+USB client and protocol & USB developer & Implement framing, ownership, STOP, export and deletion tests.\\
+Hardware qualification & Test owner & Record all Section 12 evidence and reviewer sign-off.\\
+\end{SDDTable}
+Role assignments are responsibilities, not claims that individuals have accepted work. Assign people and track each item through issues/PRs. An optional Kalman filter is deferred; add its state model, noise assumptions, initialization and validation as a separate reviewed feature if requested.
+
+The checked-in USBX memory pool is currently 1024 bytes, while the generated application requests a 1024-byte USB memory region and an additional 1024-byte thread stack plus allocator overhead. It is insufficient as a runtime design and must be resized before claiming working USB. This document does not silently treat the generated values as qualified allocations.

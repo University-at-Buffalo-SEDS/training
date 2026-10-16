@@ -1,0 +1,13 @@
+\section{Fault handling and destructive operations}
+\begin{SDDTable}{lY}
+Fault & Required response\\\midrule
+Sensor ID/read error & Bounded retries, explicit invalid/freshness flags and counters; no fabricated valid sample. Required-device initialization failure blocks START.\\
+Queue full & Drop newest on the affected path and count it; continue other independent deliveries.\\
+SPI failure & Deselect all slaves, release mutex, return a typed error. Never spin indefinitely holding the bus.\\
+Flash failure/full & Stop unsafe persistence, preserve committed logs, quarantine uncertain slots and report FAULT/FULL.\\
+USB malformed/disconnected & Discard malformed frame; invalidate leases/tokens and reclaim buffers after transfer quiescence. Logging remains independent.\\
+Metadata ambiguity & Report recovery fault; do not guess allocations or automatically format.\\
+\end{SDDTable}
+The USB protocol assumes a trusted local operator and provides no authentication or confidentiality. Confirmation tokens prevent accidental or replayed deletion within the defined connection flow; they are not a security boundary against an attached malicious host. Bound lengths, numbers, command work and timeouts before touching storage. Never expose arbitrary physical erase addresses or write-status/OTP operations through user commands.
+
+No watchdog coverage is claimed by the generated starter. Decide whether a task-progress hardware watchdog is needed after worker implementation; if added, feed it only when required tasks make progress and verify reset behavior under injected stalls.

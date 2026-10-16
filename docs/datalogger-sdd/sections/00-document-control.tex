@@ -1,0 +1,15 @@
+\section*{Document control}
+\begin{SDDTable}{lY}
+Identifier & \DocumentID, revision \DocumentVersion\\
+Status & Proposed implementation design; firmware peer review pending.\\
+Owner & UB SEDS Firmware Team. Reviewers are assigned through the project PR.\\
+Source & \url{https://github.com/University-at-Buffalo-SEDS/training}; project \texttt{datalogger}.\\
+Baseline & Generated working tree on 16 October 2026. This document accompanies uncommitted changes; record the merged commit in the release manifest.\\
+\end{SDDTable}
+\textbf{Implementation status.} CubeMX peripheral initialization, HAL, ThreadX, USBX CDC scaffolding, CMake configuration, and the direct-flash helper exist. Sensor drivers, three application workers, queues, durable storage, USB commands and host client described below are the intended design, not implemented or hardware-qualified behavior. Numeric budgets are initial design allocations unless explicitly labeled as build measurements.
+
+\begin{SDDTable}{lllY}
+Revision & Date & Author & Change\\\midrule
+0.1 & 2026-10-16 & UB SEDS & Filled project template, task and storage contracts, build baseline and verification plan.\\
+\end{SDDTable}
+Approval requires a firmware peer review, closure of the blocking decisions in Section~\ref{sec:open}, and recorded acceptance evidence. The original blank template remains available separately.

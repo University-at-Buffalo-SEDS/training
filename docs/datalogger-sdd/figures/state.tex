@@ -1,0 +1,19 @@
+\begin{tikzpicture}[>=Stealth,box/.style={draw=SEDSBlue,rounded corners,align=center,text width=28mm,minimum height=10mm,font=\small},lab/.style={font=\scriptsize,align=center,fill=white,inner sep=1pt}]
+\node[box] (boot) at (0,0) {BOOT};
+\node[box] (ready) at (5,0) {READY};
+\node[box] (log) at (10,0) {LOGGING};
+\node[box] (fault) at (0,-2.3) {FAULT};
+\node[box] (maint) at (5,-2.3) {MAINTENANCE};
+\node[box] (stop) at (10,-2.3) {STOPPING};
+\node[box] (full) at (10,-4.3) {FULL};
+\draw[->] (boot)--node[above,lab]{checks pass}(ready);
+\draw[->] (ready)--node[above,lab]{START}(log);
+\draw[->] (boot)--node[left,lab]{failure}(fault);
+\draw[->] (log)--node[right,lab]{STOP}(stop);
+\draw[->] (stop)--node[above,lab]{drained /\\verified}(maint);
+\draw[->] (maint)--node[right,lab]{new session\\if healthy}(ready);
+\draw[->] (log.east)--(12.2,0)--node[right,lab]{no erased\\space}(12.2,-4.3)--(full.east);
+\draw[->] (full)--node[left,lab]{STOP}(stop);
+\end{tikzpicture}
+
+\small Any state may enter FAULT on an unrecoverable error. FULL preserves retained sessions; STOP still drains and closes.\normalsize

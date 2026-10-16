@@ -1,0 +1,15 @@
+\section{Drivers and platform}
+\begin{SDDTable}{lY}
+Item & Checked-in baseline\\\midrule
+MCU & STM32G491CET6, Cortex-M4F, 512 KiB internal flash, 112 KiB SRAM.\\
+Generator & CubeMX IOC targets CMake/GCC, project and file name \texttt{datalogger}. STM32CubeG4 1.6.3; X-CUBE-AZRTOS-G4 2.0.0.\\
+Clock & Generated SYSCLK/APB clocks are 16 MHz HSI; HSI48 supplies USB. Oscillator pin assignments do not imply HSE/LSE are enabled in the clock tree.\\
+SPI1 & PA5 SCK, PA6 MISO, PA7 MOSI; master, full duplex, 8-bit, mode 0, MSB first, software NSS, divider 2: 8 MHz.\\
+Selects & PB11 accelerometer, PB12 gyroscope, PB13 barometer, PB14 \texttt{flash\_CS}. All are active low and initialize high.\\
+USB/debug & PA11/PA12 USB device; PA13/PA14 SWD. TIM6 supplies the HAL timebase.\\
+\end{SDDTable}
+The schematic's STM32 and flash sheets establish the shared bus and PB14 selection. Sensor interrupt lines are unconnected, so polling is the baseline. Verify the fitted part suffix, supply, mounting axes and oscillator components against the physical board before qualification.
+
+The SPI adapter serializes complete transactions: take an inheritance mutex, ensure other selects are high, assert one select, exchange command/address/data, deselect and unlock on every path. Keep configuration changes under the same mutex if later devices require different SPI settings. Transfers have finite timeouts; interrupt callbacks do not block on this mutex.
+
+BMI088 initialization checks both identities, reset delays, power/measurement settings and sample scaling. BMP390 initialization loads compensation coefficients and checks data-ready/status; stale pressure remains explicitly stale. Exact range, bandwidth and oversampling settings require review and golden-vector tests. The flash driver supports bounded ID/status/read/program/sector-erase operations; it does not guess geometry after an ID mismatch.

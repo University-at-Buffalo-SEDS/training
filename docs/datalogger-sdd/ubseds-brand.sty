@@ -1,0 +1,24 @@
+\NeedsTeXFormat{LaTeX2e}
+\ProvidesPackage{ubseds-brand}[2026/09/11 UB SEDS document identity]
+\RequirePackage{graphicx}
+\RequirePackage{xcolor}
+\definecolor{SEDSBlue}{HTML}{416FBA}
+\definecolor{SEDSInk}{HTML}{182536}
+\newcommand{\SEDSCover}[5]{%
+\hypersetup{pageanchor=false}
+\begin{titlepage}
+\thispagestyle{empty}\centering
+\vspace*{5mm}
+\includegraphics[width=90mm,height=90mm,keepaspectratio]{assets/ubseds-logo.png}\par
+\vspace{2mm}
+{\color{SEDSBlue}\large University at Buffalo SEDS\par}
+\vspace{10mm}
+{\color{SEDSInk}\LARGE\bfseries #1\par}
+\vspace{5mm}{\Large Software Design Document\par}
+\vspace{7mm}{\large #2\par}
+\vspace{4mm}{\normalsize #3\par}
+\vfill
+{\color{SEDSBlue}\rule{0.75\textwidth}{1pt}\par}
+\vspace{4mm}{\normalsize #4\par}\vspace{2mm}{\small #5\par}
+\end{titlepage}
+\clearpage\pagenumbering{roman}\hypersetup{pageanchor=true}}

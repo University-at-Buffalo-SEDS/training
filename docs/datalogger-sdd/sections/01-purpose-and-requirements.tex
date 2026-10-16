@@ -1,0 +1,14 @@
+\section{Purpose and requirements}
+Build a local flight-data training logger: acquire BMI088 acceleration/angular velocity and BMP390 pressure/temperature, calculate engineering values, persist raw and processed samples to W25Q32JV SPI flash, and export closed sessions to a computer through USB CDC. There is no network service, SEDSNet dependency, OTA transport, or application bootloader. A USB thumb drive is outside scope because this board operates as a USB device.
+\begin{SDDTable}{lY}
+ID & Observable acceptance requirement\\\midrule
+R1 & One sensor worker polls both BMI088 functions and BMP390. Baseline releases are 100 Hz; barometer freshness follows its proposed 25 Hz rate.\\
+R2 & Each sample is independently offered to processing and raw storage. Both paths carry the same session, sequence and monotonic timestamp.\\
+R3 & Processing produces calibrated SI values and altitude, preserving validity and freshness.\\
+R4 & Only the data worker accesses flash at runtime; committed records have an explicit version, CRC and recovery rule.\\
+R5 & The computer can inspect status, stop a session, list and read closed sessions, and explicitly confirm deletion. Download alone never erases data.\\
+R6 & Reset rejects torn records and preserves unrelated committed sessions; interrupted deletion remains identifiable and recoverable.\\
+R7 & Full queues, storage exhaustion, device faults and USB loss are bounded, counted and reported without unbounded sensor blocking.\\
+R8 & A fresh checkout builds Debug and Release without sibling repositories. Changes use feature branches and reviewed PRs.\\
+\end{SDDTable}
+Timing targets for qualification: no missed 10 ms releases during a nominal 60 s run with available erased space; acquisition-start jitter at most 1 ms and processing latency at most 10 ms. These targets require the proposed 1 kHz tick and measured flash throughput. They are not claimed results.

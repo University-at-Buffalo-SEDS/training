@@ -1,0 +1,50 @@
+\section{Data dictionary and encoding}
+\subsection{Proposed durable slot}
+All integer fields are explicitly serialized little-endian. Floating values use IEEE 754 binary32 with documented units. Never write native C structs directly. A decoder checks length, type, format, reserved bytes, CRC and commit before exposing a record.
+\begin{SDDTable}{rrlY}
+Offset & Bytes & Field & Meaning\\\midrule
+0 & 4 & Magic & Bytes \texttt{44 4C 4F 47} (DLOG).\\
+4 & 1 & Version & 1 for the proposed format.\\
+5 & 1 & Type & 1 raw sensor, 2 processed.\\
+6 & 2 & Payload length & 0--48; type-specific expected length checked.\\
+8 & 4 & Session ID & Unique persisted ID; never reused after reset.\\
+12 & 4 & Input sequence & Acquisition sequence shared by both record types.\\
+16 & 8 & Timestamp & Monotonic microseconds, relative to session start. Resolution follows the clock source; 64-bit storage does not imply microsecond precision.\\
+24 & 48 & Payload & Type-specific encoding below; unused bytes zero.\\
+72 & 4 & CRC32 & CRC-32/ISO-HDLC of bytes 0--71.\\
+76 & 4 & Commit & Zero only after verified body; erased word is uncommitted.\\
+\end{SDDTable}
+\subsection{Raw payload: type 1, length 32}
+Offsets below are relative to the payload, not the whole slot. Signed integers use two's complement. Session metadata records actual sensor configuration and scaling.
+\begin{SDDTable}{rlY}
+Offset & Encoding & Meaning\\\midrule
+0 & \texttt{u32} & Valid/fresh flags.\\
+4 & 3 times \texttt{i16} & BMI088 acceleration counts, sensor axes x/y/z.\\
+10 & 3 times \texttt{i16} & BMI088 gyro counts, sensor axes x/y/z.\\
+16 & \texttt{u32} & BMP390 pressure ADC, unsigned 24-bit value in low bits.\\
+20 & \texttt{u32} & BMP390 temperature ADC, unsigned 24-bit value in low bits.\\
+24 & \texttt{u32} & Age of last fresh barometer reading in microseconds.\\
+28 & \texttt{u32} & Acquisition error/status bitmask.\\
+\end{SDDTable}
+BMI088 settings and BMP390 compensation coefficients must be saved in versioned session metadata so raw data can be reproduced offline. Unavailable channels are zero-filled with validity clear, not inferred valid from their numeric value.
+
+\subsection{Processed payload: type 2, length 48}
+\begin{SDDTable}{rlY}
+Offset & Encoding & Meaning\\\midrule
+0 & \texttt{u32} & Valid/fresh flags inherited or derived from inputs.\\
+4 & 3 times \texttt{f32} & Calibrated body-axis acceleration in m/s\textsuperscript{2}.\\
+16 & 3 times \texttt{f32} & Calibrated body-axis angular rate in rad/s.\\
+28 & \texttt{f32} & Compensated pressure in Pa.\\
+32 & \texttt{f32} & Compensated temperature in degrees Celsius.\\
+36 & \texttt{f32} & Barometric altitude in m relative to stored reference pressure.\\
+40 & \texttt{u32} & Barometer age in microseconds.\\
+44 & \texttt{u32} & Processing error/status mask.\\
+\end{SDDTable}
+Flag bits 0--3 mean accel/gyro/pressure/temperature valid; bits 4--7 mean each corresponding channel fresh; bit 8 means altitude valid. Other flag bits are reserved zero. Raw records keep altitude-valid clear. Status bit 0 means a read error, bit 1 stale barometer, bit 2 invalid compensation, bit 3 out-of-range conversion; reserve other bits. Derived non-finite values clear validity. Freeze any additional codes through a versioned protocol/format change.
+
+Processing uses recorded mounting transform, bias/scale and reference pressure. Initial altitude is the standard-atmosphere relation \(h=44330[1-(p/p_0)^{0.1903}]\) m with positive finite pressures; it is an approximation, not a navigation guarantee. Raw and processed pairs correlate by session/sequence even if their append order differs.
+
+\subsection{RAM envelope}
+A 64-byte queue envelope contains record type and schema version (one byte each), payload length (two bytes), input sequence (four), timestamp (eight) and 48 payload bytes. The session ID is an immutable active-session context shared before producers start; the STOP barrier ensures no old-session envelopes remain before a new context is published. This preserves all 48 processed payload bytes without truncation. Data adds the session ID when encoding the durable slot. The type/version/length header determines the payload decoder.
+
+Control and USB queues use separate tagged 64-byte schemas. Control messages carry operation/session/generation IDs and bounded arguments; responses carry status, buffer index, length and CRC. No dynamic pointer or host-supplied physical flash address is accepted. Freeze these wire-independent control encodings and assertions with the application implementation.

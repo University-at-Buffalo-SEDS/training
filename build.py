@@ -1,31 +1,12 @@
 #!/usr/bin/env python3
-"""
-CrashNBurn CMake build + flash helper.
-Adapted from ../analog_tears/build.py on 2026-09-15.
-Local changes: explicit ARM toolchain, folder-local root, no telemetry option.
+"""Datalogger CMake build and direct-flash helper, adapted from DAQ-Board/build.py.
 
-Features
-- Detect repo root by searching upwards for CMakeLists.txt
-- Read project name from CMakeLists.txt `project(<name> ...)`
-- Build Debug/Release with a toolchain file
-- Generate .bin from .elf via arm-none-eabi-objcopy
-- Flash via:
-    * dfu-util (DFU)
-    * st-flash (ST-LINK USB dongle, stlink tools)
-    * st-util + arm-none-eabi-gdb (ST-LINK server + GDB "load")
-    * ST-LINK_gdbserver + arm-none-eabi-gdb (CubeProgrammer gdbserver / ST-LINK server)
-    * STM32_Programmer_CLI (STM32CubeProgrammer direct flash)
-- Friendly, non-traceback error messages by default
-
-Usage examples
-  ./build.py build --debug
-  ./build.py build --release
-  ./build.py flash --debug --method st-flash
-  ./build.py flash --release --method st-util
+DAQ networking, telemetry, simulator, bootloader, factory and OTA paths are omitted.
+All paths are relative to this checkout; no sibling repositories are required.
 """
 from __future__ import annotations
-
 import argparse
+import io
 import os
 import re
 import shlex
@@ -35,12 +16,7 @@ import sys
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable, Optional
-
-
-# ---------------------------
-# UI / formatting (emoji-safe)
-# ---------------------------
+from typing import Optional
 
 def _supports_unicode() -> bool:
     enc = (sys.stdout.encoding or "").lower()
@@ -48,7 +24,6 @@ def _supports_unicode() -> bool:
         return False
     # If piped, some envs lie about encoding; keep conservative:
     return sys.stdout.isatty()
-
 
 @dataclass(frozen=True)
 class UI:
@@ -75,19 +50,12 @@ class UI:
     def say(self, kind: str, msg: str) -> None:
         print(f"{self.sym(kind)} {msg}")
 
-
-# ---------------------------
-# Errors (no raw tracebacks)
-# ---------------------------
-
 class FriendlyError(RuntimeError):
     pass
-
 
 def die(ui: UI, msg: str, code: int = 2) -> None:
     ui.say("err", msg)
     raise SystemExit(code)
-
 
 def _wrap_unhandled(ui: UI):
     def excepthook(exc_type, exc, tb):
@@ -101,15 +69,9 @@ def _wrap_unhandled(ui: UI):
                 f"Tip: re-run with --trace to see a full traceback.", code=2)
     return excepthook
 
-
-# ---------------------------
-# Utilities
-# ---------------------------
-
 def which(cmd: str) -> Optional[str]:
     from shutil import which as _which
     return _which(cmd)
-
 
 def run(ui: UI, cmd: list[str], cwd: Optional[Path] = None, env: Optional[dict[str, str]] = None) -> None:
     ui.say("run", " ".join(shlex.quote(c) for c in cmd))
@@ -122,7 +84,6 @@ def run(ui: UI, cmd: list[str], cwd: Optional[Path] = None, env: Optional[dict[s
         raise FriendlyError(f"Command failed (exit {e.returncode}): {cmd[0]}\n"
                             f"See output above for details.")
 
-
 def popen(ui: UI, cmd: list[str], cwd: Optional[Path] = None) -> subprocess.Popen:
     ui.say("run", " ".join(shlex.quote(c) for c in cmd))
     try:
@@ -130,7 +91,6 @@ def popen(ui: UI, cmd: list[str], cwd: Optional[Path] = None) -> subprocess.Pope
     except FileNotFoundError:
         raise FriendlyError(f"Command not found: {cmd[0]}\n"
                             f"Make sure it's installed and on PATH.")
-
 
 def find_repo_root(start: Path) -> Path:
     p = start.resolve()
@@ -141,32 +101,20 @@ def find_repo_root(start: Path) -> Path:
         "here (Generate under root), then rerun ./build.py build."
     )
 
-
-# --- CMake parsing helpers ---
-# We intentionally keep this parser "simple but practical" (no full CMake eval),
-# covering the patterns most embedded templates use (CubeMX included).
-
 _COMMENT_RE = re.compile(r"(?m)#.*$")
-
-# Matches: set(VAR value) or set(VAR "value")
 _SET_RE = re.compile(
     r"(?is)\bset\s*\(\s*([A-Za-z0-9_]+)\s+(.+?)\s*\)",
 )
-
-# Matches: project(name ...) or project(${VAR} ...)
 _PROJECT_CALL_RE = re.compile(
     r"(?is)\bproject\s*\(\s*([^\s\)]+)",
 )
-
 _VAR_REF_RE = re.compile(r"^\$\{([A-Za-z0-9_]+)\}$")
-
 
 def _strip_quotes(s: str) -> str:
     s = s.strip()
     if (len(s) >= 2) and ((s[0] == s[-1] == '"') or (s[0] == s[-1] == "'")):
         return s[1:-1].strip()
     return s
-
 
 def parse_project_name(cmakelists: Path) -> str:
     raw = cmakelists.read_text(encoding="utf-8", errors="replace")
@@ -215,6 +163,7 @@ def parse_project_name(cmakelists: Path) -> str:
         f"  - set(CMAKE_PROJECT_NAME MyProject) then project(${{CMAKE_PROJECT_NAME}})\n"
         f"Tip: you can override with --project <name>."
     )
+
 def pick_elf(build_dir: Path, preferred_name: Optional[str]) -> Path:
     if preferred_name:
         p = build_dir / f"{preferred_name}.elf"
@@ -236,7 +185,6 @@ def pick_elf(build_dir: Path, preferred_name: Optional[str]) -> Path:
         f"Tip: check your CMake target output or pass --artifact <name>."
     )
 
-
 def wait_port(host: str, port: int, timeout_s: float = 5.0) -> None:
     deadline = time.time() + timeout_s
     last_err = None
@@ -248,11 +196,6 @@ def wait_port(host: str, port: int, timeout_s: float = 5.0) -> None:
             last_err = e
             time.sleep(0.1)
     raise FriendlyError(f"Timed out waiting for {host}:{port} to open ({timeout_s:.1f}s). Last error: {last_err}")
-
-
-# ---------------------------
-# Build
-# ---------------------------
 
 @dataclass
 class BuildConfig:
@@ -267,7 +210,6 @@ class BuildConfig:
     @property
     def build_dir(self) -> Path:
         return self.repo_root / "build" / self.build_subdir
-
 
 def configure_and_build(ui: UI, cfg: BuildConfig) -> tuple[Path, Path]:
     cfg.build_dir.mkdir(parents=True, exist_ok=True)
@@ -296,18 +238,62 @@ def configure_and_build(ui: UI, cfg: BuildConfig) -> tuple[Path, Path]:
     ui.say("ok", f"Built: {elf.name} -> {bin_path.name}")
     return elf, bin_path
 
-
-# ---------------------------
-# Flashing
-# ---------------------------
-
 def flash_dfu(ui: UI, bin_path: Path, addr: str) -> None:
     if which("dfu-util") is None:
         raise FriendlyError("dfu-util not found.\n"
-                            "Install it (e.g., apt-get install dfu-util, brew install dfu-util) "
+                            "Install it (macOS: brew install dfu-util; Ubuntu/Debian: sudo apt install dfu-util). Windows binaries: https://dfu-util.sourceforge.net/releases/. See README.md for PATH and USB driver setup; "
                             "or use --method st-flash / st-util.")
-    run(ui, ["dfu-util", "-a", "0", "-s", addr, "-D", str(bin_path)])
+    dfuse_address = addr if ":" in addr else f"{addr}:leave"
+    cmd = ["dfu-util", "-a", "0", "-s", dfuse_address, "-D", str(bin_path)]
+    ui.say("run", " ".join(shlex.quote(part) for part in cmd))
+    try:
+        process = subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            bufsize=0,
+        )
+    except FileNotFoundError:
+        raise FriendlyError("Command not found: dfu-util")
 
+    output_chunks = []
+    line_chunks = []
+    deferred_status = ""
+    assert process.stdout is not None
+    stream = io.TextIOWrapper(
+        process.stdout, encoding="utf-8", errors="replace", newline=""
+    )
+    while text := stream.read(1):
+        output_chunks.append(text)
+        line_chunks.append(text)
+        if text in ("\r", "\n"):
+            line = "".join(line_chunks)
+            line_chunks.clear()
+            if "dfu-util: Error during download get_status" in line:
+                deferred_status += line
+            else:
+                print(line, end="", flush=True)
+    if line_chunks:
+        line = "".join(line_chunks)
+        if "dfu-util: Error during download get_status" in line:
+            deferred_status += line
+        else:
+            print(line, end="", flush=True)
+    returncode = process.wait()
+    output = "".join(output_chunks)
+
+    reset_disconnect = (
+        returncode == 74
+        and "File downloaded successfully" in output
+        and "Submitting leave request" in output
+        and "Error during download get_status" in output
+    )
+    if reset_disconnect:
+        return
+    if deferred_status:
+        print(deferred_status, end="", flush=True)
+    if returncode != 0:
+        raise FriendlyError(f"Command failed (exit {returncode}): dfu-util")
 
 def flash_st_flash(ui: UI, bin_path: Path, addr: str, reset: bool) -> None:
     # st-flash comes from stlink tools
@@ -320,7 +306,6 @@ def flash_st_flash(ui: UI, bin_path: Path, addr: str, reset: bool) -> None:
         cmd.append("--reset")
     cmd += ["write", str(bin_path), addr]
     run(ui, cmd)
-
 
 def flash_stm32prog_cli(
     ui: UI,
@@ -341,35 +326,32 @@ def flash_stm32prog_cli(
         raise FriendlyError("STM32_Programmer_CLI not found.\n"
                             "Install STM32CubeProgrammer and add it to PATH, "
                             "or pass --stm32prog-cli /path/to/STM32_Programmer_CLI.")
-    cmd = [exe, "-c", connect, "-w", str(bin_path), addr, "-v"]
+    cmd = [exe, "-c", *shlex.split(connect), "-w", str(bin_path), addr, "-v"]
     if reset:
         cmd.append("-rst")
     cmd += extra_args
     run(ui, cmd)
 
-
-def flash_via_gdb(ui: UI, elf_path: Path, host: str, port: int, gdb: str, extra_gdb_cmds: list[str] | None = None) -> None:
+def flash_binary_via_gdb(
+    ui: UI, image_path: Path, addr: str, host: str, port: int, gdb: str
+) -> None:
     if which(gdb) is None:
         raise FriendlyError(f"{gdb} not found.\n"
                             "Install the ARM GNU toolchain that provides arm-none-eabi-gdb "
                             "or pass --gdb <path>.")
+    image = str(image_path.resolve()).replace("\\", "\\\\").replace('"', '\\"')
     cmds = [
         "set confirm off",
         "set pagination off",
         f"target extended-remote {host}:{port}",
         "monitor reset halt",
-        "load",
+        f'restore "{image}" binary {addr}',
         "monitor reset run",
         "quit",
     ]
-    if extra_gdb_cmds:
-        # Insert after connection
-        cmds = cmds[:4] + extra_gdb_cmds + cmds[4:]
-    # -batch-silent hides extra noise but still prints errors
-    run(ui, [gdb, "-q", "-batch", *sum([["-ex", c] for c in cmds], []), str(elf_path)])
+    run(ui, [gdb, "-q", "-batch", *sum([["-ex", c] for c in cmds], [])])
 
-
-def flash_st_util(ui: UI, elf_path: Path, gdb: str, host: str, port: int, st_util_args: list[str]) -> None:
+def flash_st_util(ui: UI, image_path: Path, addr: str, gdb: str, host: str, port: int, st_util_args: list[str]) -> None:
     # st-util comes from stlink tools; it provides a GDB server (default :4242).
     if which("st-util") is None:
         raise FriendlyError("st-util not found.\n"
@@ -378,7 +360,7 @@ def flash_st_util(ui: UI, elf_path: Path, gdb: str, host: str, port: int, st_uti
     proc = popen(ui, ["st-util", *st_util_args])
     try:
         wait_port(host, port, timeout_s=8.0)
-        flash_via_gdb(ui, elf_path, host, port, gdb)
+        flash_binary_via_gdb(ui, image_path, addr, host, port, gdb)
     finally:
         proc.terminate()
         try:
@@ -386,8 +368,7 @@ def flash_st_util(ui: UI, elf_path: Path, gdb: str, host: str, port: int, st_uti
         except subprocess.TimeoutExpired:
             proc.kill()
 
-
-def flash_stlink_gdbserver(ui: UI, elf_path: Path, gdb: str, host: str, port: int, gdbserver: str, gdbserver_args: list[str]) -> None:
+def flash_stlink_gdbserver(ui: UI, image_path: Path, addr: str, gdb: str, host: str, port: int, gdbserver: str, gdbserver_args: list[str]) -> None:
     # Common names: ST-LINK_gdbserver (CubeProgrammer) or ST-LINK_gdbserver.exe on Windows.
     if which(gdbserver) is None:
         raise FriendlyError(f"{gdbserver} not found.\n"
@@ -397,18 +378,13 @@ def flash_stlink_gdbserver(ui: UI, elf_path: Path, gdb: str, host: str, port: in
     try:
         wait_port(host, port, timeout_s=10.0)
         # Some servers don't support monitor reset; keep it, but allow override
-        flash_via_gdb(ui, elf_path, host, port, gdb)
+        flash_binary_via_gdb(ui, image_path, addr, host, port, gdb)
     finally:
         proc.terminate()
         try:
             proc.wait(timeout=2.0)
         except subprocess.TimeoutExpired:
             proc.kill()
-
-
-# ---------------------------
-# CLI
-# ---------------------------
 
 def make_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
@@ -466,7 +442,6 @@ def make_parser() -> argparse.ArgumentParser:
 
     return p
 
-
 def build_cfg_from_args(ui: UI, args: argparse.Namespace) -> BuildConfig:
     script_dir = Path(__file__).resolve().parent
     repo_root = find_repo_root(script_dir)
@@ -497,7 +472,6 @@ def build_cfg_from_args(ui: UI, args: argparse.Namespace) -> BuildConfig:
         artifact=args.artifact,
     )
 
-
 def main() -> None:
     parser = make_parser()
     args = parser.parse_args()
@@ -526,14 +500,14 @@ def main() -> None:
         elif method == "st-util":
             port = args.port or 4242
             st_args = shlex.split(args.st_util_args) if args.st_util_args else []
-            flash_st_util(ui, elf, args.gdb, args.host, port, st_args)
+            flash_st_util(ui, bin_path, addr, args.gdb, args.host, port, st_args)
         elif method == "stlink-gdbserver":
             # Reasonable default port used by some gdbservers (override with --port).
             port = args.port or 61234
             gs_args = shlex.split(args.gdbserver_args) if args.gdbserver_args else []
             # If user didn't specify port in args, try to nudge server via args when possible.
             # We won't guess vendor-specific flags; user can pass them in --gdbserver-args.
-            flash_stlink_gdbserver(ui, elf, args.gdb, args.host, port, args.gdbserver, gs_args)
+            flash_stlink_gdbserver(ui, bin_path, addr, args.gdb, args.host, port, args.gdbserver, gs_args)
         elif method == "stm32prog-cli":
             sp_args = shlex.split(args.stm32prog_args) if args.stm32prog_args else []
             flash_stm32prog_cli(
@@ -552,7 +526,6 @@ def main() -> None:
         return
 
     raise FriendlyError("No command provided. Use 'build' or 'flash'.")
-
 
 if __name__ == "__main__":
     main()

@@ -1,0 +1,19 @@
+\section{Resources and timing}
+\begin{SDDTable}{lY}
+Budget & Design or measured value\\\midrule
+Generated Debug build & 31,452 bytes internal flash and 7,784 bytes RAM reported by linker on 16 October 2026.\\
+Generated Release build & 17,012 bytes internal flash and 7,736 bytes RAM. Both exclude the unimplemented logger design.\\
+Application workers & 10,240 bytes stacks total; USB adapter proposal adds 4096 bytes.\\
+Four queue arrays & 11,264 bytes; queue objects, control events, mutex and status structures are additional.\\
+USB chunks & Two 512-byte buffers: 1024 bytes plus descriptors.\\
+Flash rate & 100 raw + 100 processed records/s; 80 bytes each, page padding: about 17,067 occupied bytes/s.\\
+Ideal duration & About 245 s before metadata/session headers and other overhead. The board does not hold hours of logs at this rate.\\
+Backlog & 128 queued records absorb only 0.64 s at 200 records/s. A queue cannot cure sustained overload.\\
+\end{SDDTable}
+The proposed stacks, queue arrays and chunk buffers total 26,624 bytes before middleware allocations and control objects. Do not simply add this to the generated RAM figure: pool replacement may remove or change existing allocations. Inspect the final map, stack high-water marks, middleware pools and interrupt/main stacks within 112 KiB.
+
+The generated port currently configures a 100 Hz SysTick and leaves the ThreadX tick constant at its default. The proposed design requires 1 kHz: update both the low-level reload and ThreadX tick definition consistently, then measure actual tick period and preserve the change across regeneration. A 100 Hz tick cannot establish the proposed 1 ms jitter measurement alone.
+
+Use absolute 10 ms deadlines with wrap-safe comparisons. On overrun count it and skip to a defined future release rather than running an unlimited catch-up loop. At 8 MHz a 260-byte transaction takes 260 microseconds on the wire, excluding mutex and software overhead; measure actual worst-case lock duration. Flash internal busy waits release the bus.
+
+Two program operations per record can consume 6 ms at the cited worst-case program time: 200 records/s can exceed sustained throughput before overhead. Qualification must justify actual rates, batching/commit changes, or a reduced logging rate. Pre-erase space in maintenance mode and preserve old sessions when full.

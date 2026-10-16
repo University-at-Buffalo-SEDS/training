@@ -1,0 +1,6 @@
+\section{Firmware deployment and recovery}
+The executable links at internal flash \texttt{0x08000000}; it is programmed directly using ST-LINK or the MCU's built-in ROM DFU loader. This project contains no application bootloader, slot layout, factory-image composition, OTA package or network recovery path. Updating firmware is distinct from modifying the external log flash.
+
+Before changing a persistent format, export retained sessions and document migration or incompatibility. A reader rejects unsupported versions without deleting them. Boot corruption produces a recoverable status/fault, not automatic erase. Flash busy timeouts and readback mismatches stop new persistence until diagnosis; repeated unbounded retries are forbidden.
+
+Recovery procedures use a known-good firmware image and explicit hardware boot settings. Verify internal firmware identity after programming. Do not assume downloaded data is safe until the host has validated CRCs and saved the manifest. Hardware power-loss testing must cover both body/commit writes and metadata replacement/deletion boundaries.

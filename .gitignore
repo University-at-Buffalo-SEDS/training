@@ -2,3 +2,14 @@
 __pycache__/
 *.pyc
 /build/
+/cmake-build-*/
+/CMakeUserPresets.json
+/.mxproject
+/.settings/
+*.elf
+*.bin
+*.hex
+*.map
+*.o
+*.obj
+*.su

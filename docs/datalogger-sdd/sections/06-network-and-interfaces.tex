@@ -1,0 +1,17 @@
+\section{USB command and module interfaces}
+There is no network protocol. USBX CDC ACM is a byte stream to a computer; USB packets do not frame commands. Proposed requests are ASCII lines, at most 128 bytes including LF, with optional CR immediately before LF. One request is outstanding per connection. Discard malformed or overlength input through the next LF; never execute a partial line. Parse unsigned values with explicit overflow/range checks.
+\begin{SDDTable}{lY}
+Request & Contract\\\midrule
+\texttt{STATUS} & Versions, operating state, active ID, storage usage, durable count and per-path fault/drop counters.\\
+\texttt{LIST} & Closed session IDs, generations, committed logical lengths and incomplete flags.\\
+\texttt{START} / \texttt{STOP} & Allocate and begin a new session / complete the cutoff-and-drain handshake.\\
+\texttt{READ id offset count} & Read 1--512 bytes from a closed session after validating its logical bounds and export lease.\\
+\texttt{ERASE\_PREPARE id} & Validate a closed, unpinned session and issue a connection-bound confirmation token.\\
+\texttt{ERASE\_CONFIRM id generation token} & Consume a matching token once; journal deletion intent and start bounded asynchronous erasure in maintenance mode.\\
+\texttt{OP\_STATUS operation\_id} & Return deletion progress, verified completion, or failure.\\
+\end{SDDTable}
+Replies are LF-terminated \texttt{OK ...} or \texttt{ERR code ...}. A read returns \texttt{DATA id offset length crc32} plus LF, exactly \texttt{length} binary bytes, then LF. The chunk CRC uses the algorithm in Section~\ref{sec:persistence}. The host respects the length even when binary bytes contain LF. Reject invalid state, unknown ID, stale generation, bounds violations and busy/full resources with distinct error codes.
+
+READ pins the session for a proposed 30 s inactivity lease. Release the pin on explicit connection close, disconnect or lease expiry after in-flight access is quiescent. A proposed 30 s erase token binds connection, session and generation; invalidate it on disconnect, expiry or use. Pinning and token validation occur in data so deletion cannot race export. Duplicate confirmation returns existing operation status while that operation is retained, rather than erasing twice.
+
+The host client performs STATUS, STOP, LIST, repeated READ with CRC checks, file/manifest save, then a separate explicit deletion confirmation. Reconnect resumes only after rechecking session ID and generation. The build helper is a firmware programmer, not this client.

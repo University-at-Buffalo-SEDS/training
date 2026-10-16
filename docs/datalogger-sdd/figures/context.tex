@@ -1,0 +1,12 @@
+\begin{tikzpicture}[>=Stealth,box/.style={draw=SEDSBlue,rounded corners,align=center,text width=35mm,minimum height=12mm,font=\small},every edge/.style={draw,->}]
+\node[box] (sensor) at (0,0) {Sensor worker\\BMI088 + BMP390};
+\node[box] (proc) at (5,0) {Processing worker\\SI values + altitude};
+\node[box] (data) at (5,-2.3) {Data worker\\sole flash owner};
+\node[box] (flash) at (0,-2.3) {W25Q32JV\\SPI1, PB14 CS};
+\node[box] (usb) at (10,-2.3) {USB adapter\\CDC / computer};
+\draw[->] (sensor)--node[above,font=\scriptsize]{raw copy}(proc);
+\draw[->] (sensor)--node[left,font=\scriptsize]{raw copy}(data);
+\draw[->] (proc)--node[right,font=\scriptsize]{processed}(data);
+\draw[<->] (data)--node[above,font=\tiny]{SPI lock}(flash);
+\draw[<->] (data)--node[above,font=\scriptsize]{queues}(usb);
+\end{tikzpicture}

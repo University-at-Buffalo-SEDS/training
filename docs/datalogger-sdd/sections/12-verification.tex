@@ -1,0 +1,16 @@
+\section{Verification and acceptance}
+\begin{SDDTable}{lYY}
+Requirement & Planned test/evidence & Status at this baseline\\\midrule
+R8 & Direct helper execution; Debug/Release configure, link and BIN generation. & Passed locally, GNU Arm 13.3.1. No board programmed.\\
+R8 & Independent source copy built from a path containing spaces, invoked outside the checkout; no sibling inputs. & Passed locally in Debug. Preset configuration and future IOC diffs remain review checks.\\
+R1/R3 & Device IDs; static and physical sensor stimuli; compensation golden vectors, stale data and tick-wrap cases. & Not implemented/tested.\\
+R2/R7 & Nominal dual delivery; independently fill each queue and verify exact per-path counters and sequence gaps. & Not implemented/tested.\\
+R4 & Logic-analyzer CS trace and maximum lock duration; only data invokes flash; bounds/page splitting tests. & Not implemented/tested.\\
+R4/R6 & CRC vector, last legal byte, bad bounds, page padding, invalid version, torn body/commit and metadata power cuts. & Not implemented/tested.\\
+R5 & STOP drain boundary; list/read/chunk CRC; malformed/partial/overlong commands, disconnect, export lease, token expiry/replay. & Not implemented/tested.\\
+R5/R6 & Reject active/pinned deletion; power cuts after intent, during erase and before completion; unrelated session preservation. & Not implemented/tested.\\
+R7 & Full-flash run, sustained throughput, 60 s timing trace, measured stack and queue high-water marks. & Not implemented/tested.\\
+\end{SDDTable}
+Use an explicitly allocated scratch sector for destructive flash bring-up. Identify, erase/blank-check, program a known pattern spanning pages through split commands, then compare every byte. Record board revision, firmware commit, host/tool versions, voltage conditions and analyzer captures. Never perform the scratch test on retained sessions.
+
+Acceptance requires all mandatory requirements to have reproducible evidence, closure of storage format/throughput decisions, no unexplained nominal sequence loss, bounded error behavior, and peer approval. Generated builds establish compilation only, not correct USB enumeration, memory sizing, acquisition, persistence or recovery.

@@ -1,0 +1,13 @@
+\section{References and source baseline}
+The following local files accompany the training repository. Manufacturer copyright and licenses remain with their owners. Consult the complete documents while implementing drivers; the design does not replace their timing tables or register descriptions.
+\begin{enumerate}[leftmargin=*]
+\item \texttt{CrashNBurn-Project-Guide.pdf}, training baseline, 15 September 2026. Source for the three-worker design, queue proposals, record format, recovery and USB workflow; especially Sections 1, 4 and 5.2--5.5.
+\item \texttt{Schematics.pdf}, six sheets: STM32 sheet 2 and external flash sheet 5 establish SPI1 and PB14; sensor sheets establish connected signals.
+\item \texttt{datasheets/W25Q32JV-SPI-Flash.pdf}, Winbond W25Q32JV, Rev K, April 2026. Viewer pages 17, 22--28, 36, 38 and 66: suffix/status, commands, page program, erase and timing. Page numbers are one greater than printed Winbond numbers.
+\item \texttt{datasheets/BMI088-IMU.pdf}, Bosch BST-BMI088-DS000-19, revision 1.9, January 2024: initialization, data interfaces, measurement configuration and conversion.
+\item \texttt{datasheets/BMP390-Barometer.pdf}, Bosch BST-BMP390-DS002-07, revision 1.7, March 2021: configuration, compensation, data-ready and interface behavior.
+\item \texttt{datasheets/STM32G491-MCU.pdf}, ST DS13122 Rev 4, April 2024: CET6/LQFP48 pinout and electrical limits. The datasheets README records download sources and hashes.
+\item \texttt{datalogger.ioc}, generated Core, AZURE\_RTOS, USBX, CMake and linker files, working tree dated 16 October 2026: current implemented configuration. Record the merged revision at release.
+\item The original UB SEDS Overleaf template supplies the document structure and branding. RFBoard is a documentation example cited by the training guide; its networking and boot architecture do not apply here.
+\item dfu-util official project and releases: \url{https://dfu-util.sourceforge.net/} and \url{https://dfu-util.sourceforge.net/releases/}; Homebrew formula \url{https://formulae.brew.sh/formula/dfu-util}; Ubuntu package \url{https://packages.ubuntu.com/dfu-util}. Installation guidance checked 16 October 2026.
+\end{enumerate}

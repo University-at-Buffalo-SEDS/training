@@ -1,0 +1,12 @@
+\begin{tikzpicture}[>=Stealth,font=\small]
+\foreach \x/\name in {0/Sensor,4/Processing,8/Data,12/Flash}{
+\node[draw=SEDSBlue,rounded corners,minimum width=23mm] at (\x,0) {\name};
+\draw[dashed,gray] (\x,-0.3)--(\x,-5.8);}
+\draw[->] (0,-0.8)--node[above,font=\scriptsize]{raw to process queue}(4,-0.8);
+\draw[->] (0,-1.6)--node[above,font=\scriptsize]{independent raw to data queue}(8,-1.6);
+\draw[->] (4,-2.4)--node[above,font=\scriptsize]{processed result}(8,-2.4);
+\draw[->] (8,-3.2)--node[above,font=\scriptsize]{program body/CRC}(12,-3.2);
+\draw[<-] (8,-4)--node[above,font=\scriptsize]{poll + verify}(12,-4);
+\draw[->] (8,-4.8)--node[above,font=\scriptsize]{program commit}(12,-4.8);
+\draw[<-] (8,-5.6)--node[above,font=\scriptsize]{verify then durable}(12,-5.6);
+\end{tikzpicture}

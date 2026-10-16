@@ -1,0 +1,10 @@
+\section{Control flow and operating states}
+\begin{figure}[htbp]\centering\input{figures/startup.tex}\caption{Proposed startup sequence and readiness gate.}\end{figure}
+\begin{figure}[htbp]\centering\input{figures/state.tex}\caption{Operating states with storage and fault exits.}\end{figure}
+BOOT performs HAL initialization and starts ThreadX. Platform object creation failures prevent logging. Data identifies flash and reconstructs session allocations. Sensor initializes devices; required-device failure prevents START. READY reports health and awaits explicit START. LOGGING creates a unique session and accepts both record types.
+
+STOP establishes a producer cutoff. Sensor acknowledges its last sequence; processing drains all accepted earlier samples and acknowledges its last result. Only after both acknowledgments and the record queue drain does data verify pending writes and close the session. Bound the handshake to an initial 2 s budget; on timeout mark the session incomplete and report the last durable sequence rather than claiming success. Rework this budget if measured drain time requires it.
+
+MAINTENANCE permits export and confirmed deletion of closed sessions. FULL disables additional persistence, counts rejected records and preserves retained data; acquisition and processing can continue for status. Reclaim space only through explicit maintenance deletion, then start a new session. FAULT reports its cause and prevents unsafe writes until a documented reset/recovery procedure succeeds. A USB disconnect releases leases and tokens; it does not automatically stop acquisition or delete a log.
+
+\begin{figure}[htbp]\centering\input{figures/sequence.tex}\caption{Two independent raw deliveries and verified persistence.}\end{figure}

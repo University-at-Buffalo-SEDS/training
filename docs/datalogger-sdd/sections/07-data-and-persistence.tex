@@ -1,0 +1,25 @@
+\section{Data and persistence}\label{sec:persistence}
+W25Q32JVSSIQ provides 32 Mbit: 4,194,304 bytes, inclusive addresses \texttt{0x000000--0x3FFFFF}, 256-byte pages and 4096-byte sectors. Range checks use \texttt{length <= capacity - address} after checking \texttt{address < capacity}. This external storage is accessed by SPI commands, not \texttt{HAL\_FLASH\_Program} or the firmware link address.
+\begin{SDDTable}{lY}
+Region & Proposed allocation\\\midrule
+\texttt{0x000000--0x000FFF} & Metadata journal A.\\
+\texttt{0x001000--0x001FFF} & Metadata journal B.\\
+\texttt{0x002000--0x3FFFFF} & 1022 sectors for sector-aligned sessions. Reserve each session's first page for its header.\\
+\end{SDDTable}
+Sessions record unique monotonic IDs, generation, format, allocated sector extent, state and committed length. Generation comparison handles wrap explicitly; halt allocation rather than reuse exhausted IDs. Two journals use generation/CRC/commit checks. Verify a replacement journal before reclaiming the last valid copy. Journal allocations, session boundaries and deletion intent, not every sample. The precise metadata binary layout must be frozen and tested before implementing writes.
+
+Records occupy 80-byte slots as defined in the data dictionary. Three slots fit one page with 16 bytes of padding. CRC-32/ISO-HDLC uses reflected polynomial \texttt{0xEDB88320}, initial and final XOR \texttt{0xFFFFFFFF}, over bytes 0--71. Check vector \texttt{123456789} gives \texttt{0xCBF43926}. Commit is four zero bytes; erased \texttt{0xFFFFFFFF} is uncommitted.
+
+\subsection{Command and commit sequence}
+Identify with \texttt{9F}; require the specified part's JEDEC ID \texttt{EF 40 16}. Read status with \texttt{05}: bit 0 BUSY, bit 1 WEL. Use \texttt{06} as a separate CS transaction before each modification. Read uses \texttt{03} and a three-byte address; program uses \texttt{02}; 4 KiB erase uses \texttt{20}. Addresses travel most-significant byte first, independently of little-endian record serialization.
+
+Allocate verified erased slots only. Encode 76 bytes of body/CRC, enable writing, verify WEL, program without crossing a page, deselect and release SPI. Poll BUSY in later bounded steps. Read back and verify the body before a fresh write-enable/program of the four-byte commit; then read back the complete slot. Count a record durable only after the final verification. Split general writes at \texttt{min(remaining, 256 - (address \& 255))}.
+
+This two-program commit scheme is conditional on review of permitted partial-page programming for the fitted part. If the guarantee is inadequate, select and test a separate commit-record design before implementation. Do not silently retry over uncertain partially programmed data. Quarantine torn slots until sector erasure. Initial completion deadlines are 10 ms per program and 500 ms per sector erase, derived from the guide's datasheet maximums of 3 ms and 400 ms plus scheduling margin; validate the actual part and conditions.
+
+\subsection{Recovery, export and deletion}
+Boot selects the newest valid metadata journal, reconstructs allocations and accepts only versioned, committed records with valid CRC. Ignore and quarantine torn records; interrupted sessions remain identifiable as incomplete. Do not format unknown/corrupt flash automatically.
+
+Logical export concatenates valid committed 80-byte records in append order. It omits session headers, padding and torn slots, so the physical address is not simply session base plus logical offset. An index or bounded scan maps logical offsets to slots. Data verifies a slot, copies requested bytes into an owned chunk, releases SPI, then hands it to USB.
+
+Deletion requires maintenance mode, a closed unpinned session and a valid confirmation token. Durably journal its exclusive sector set as DELETING, erase each validated sector, blank-check in bounded chunks, then journal completion/free space. After reset, resume or report the pending deletion using that same recorded set. Never reclaim unrelated sessions or use chip erase in the normal protocol.

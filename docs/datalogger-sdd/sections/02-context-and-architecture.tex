@@ -1,0 +1,7 @@
+\section{Context and architecture}
+\begin{figure}[htbp]\centering\input{figures/context.tex}\caption{Datalogger ownership and external connections.}\end{figure}
+The sensor worker owns sensor initialization and acquisition. Processing owns conversions and derived outputs. Data owns session metadata, address allocation, flash operations and recovery. USB infrastructure parses host requests and exchanges bounded messages with data; it never calls a flash driver directly.
+
+Suggested modules include \texttt{spi\_bus}, \texttt{bmi088}, \texttt{bmp390}, \texttt{w25q32}, the sensor, processing and data task modules, \texttt{log\_store}, and \texttt{usb\_protocol}. Add their sources through the root CMake file. Generated files remain platform adapters, with calls to application initialization inside preserved user sections.
+
+Initialize static queues, event flags, mutexes and task storage before releasing workers. Data recovers metadata before authorizing a new session. Sensor publishes only after a session ID is assigned; processing rejects malformed envelopes. Distinguish accepted-in-RAM messages from verified durable records in all status counters.

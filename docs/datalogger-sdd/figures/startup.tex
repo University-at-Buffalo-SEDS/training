@@ -1,0 +1,8 @@
+\begin{tikzpicture}[>=Stealth,node distance=7mm,box/.style={draw=SEDSBlue,rounded corners,align=center,text width=110mm,minimum height=10mm,font=\small}]
+\node[box] (hal) {Reset: HAL / clocks / GPIO selects high / SPI1 / USB PCD};
+\node[box,below=of hal] (rtos) {Start ThreadX; create queues, mutex, events and static stacks};
+\node[box,below=of rtos] (check) {Sensor identity/config checks; data flash ID + metadata recovery};
+\node[box,below=of check] (ready) {Readiness gate: report READY or bounded diagnostic FAULT};
+\node[box,below=of ready] (start) {START: allocate unique session, publish context, release acquisition};
+\draw[->] (hal)--(rtos);\draw[->] (rtos)--(check);\draw[->] (check)--(ready);\draw[->] (ready)--(start);
+\end{tikzpicture}
