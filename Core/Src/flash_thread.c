@@ -12,6 +12,8 @@ TX_THREAD flash_thread;
 /* flash instructions have at most 8 bytes of input, 8.1.2 & 8.1.3 of flash datasheet */
 #define FLASH_ARG_LIMIT 8
 
+extern TX_MUTEX spi_lock;
+
 HAL_StatusTypeDef flash_send_command(SPI_HandleTypeDef *hspi, uint8_t command,
                                      const uint8_t *args, size_t argc) {
 
@@ -27,11 +29,11 @@ HAL_StatusTypeDef flash_send_command(SPI_HandleTypeDef *hspi, uint8_t command,
         memcpy(&tx[1], args, argc);
     }
 
-    // insert mutex_get
+    tx_mutex_get(&spi_lock, TX_WAIT_FOREVER);
     HAL_GPIO_WritePin(flash_CS_GPIO_Port, flash_CS_Pin, GPIO_PIN_RESET);
     st = HAL_SPI_Transmit(hspi, tx, 1 + argc, FLASH_SPI_TIMEOUT);
     HAL_GPIO_WritePin(flash_CS_GPIO_Port, flash_CS_Pin, GPIO_PIN_SET);
-    // insert mutex_put
+    tx_mutex_put(&spi_lock);
 
     return st;
 }
