@@ -1,5 +1,7 @@
 #include "main.h"
 #include "T-Threads.h"
+#include "stm32g4xx_hal_def.h"
+#include "stm32g4xx_hal_spi.h"
 #include "tx_api.h"
 
 TX_THREAD flash_thread;
@@ -7,6 +9,50 @@ TX_THREAD flash_thread;
 #define FLASH_THREAD_PRIORITY           15U     /* Table SDD 4.0*/ 
 #define FLASH_THREAD_PREEMPT_THRESHOLD  15U     /* Assumption based on SDD 4.0*/
 #define DATA_STEPS_PER_PASS             8U      /* "Data services up to eight record steps" SDD 4.2*/
+#define FLASH_SPI_TIMEOUT               100U    /* Uncertain, should verify later */
+
+/* flash instructions have at most 8 bytes of input, 8.1.2 & 8.1.3 of flash datasheet */
+#define FLASH_ARG_LIMIT 8
+
+extern TX_MUTEX spi_lock;
+
+HAL_StatusTypeDef flash_send_command(SPI_HandleTypeDef *hspi, uint8_t command,
+                                     const uint8_t *args, size_t argc,
+                                     uint8_t *out, size_t outlen) {
+
+    if (argc > FLASH_ARG_LIMIT || outlen > FLASH_ARG_LIMIT) {
+        return HAL_ERROR;
+    }
+
+    HAL_StatusTypeDef st;
+    uint8_t tx[1 + FLASH_ARG_LIMIT];
+    tx[0] = command;
+
+    if (args && argc) {
+        memcpy(&tx[1], args, argc);
+    }
+
+    // we might not want to wait forever but I'm not sure what the other options do
+    tx_mutex_get(&spi_lock, TX_WAIT_FOREVER);
+    HAL_GPIO_WritePin(flash_CS_GPIO_Port, flash_CS_Pin, GPIO_PIN_RESET);
+    
+    st = HAL_SPI_Transmit(hspi, tx, 1 + argc, FLASH_SPI_TIMEOUT);
+
+    if (st != HAL_OK) {
+        HAL_GPIO_WritePin(flash_CS_GPIO_Port, flash_CS_Pin, GPIO_PIN_SET);
+        tx_mutex_put(&spi_lock);
+        return HAL_ERROR;
+    }
+
+    if (outlen && out) {
+        st = HAL_SPI_Receive(hspi, out, outlen, FLASH_SPI_TIMEOUT);
+    }
+    
+    HAL_GPIO_WritePin(flash_CS_GPIO_Port, flash_CS_Pin, GPIO_PIN_SET);
+    tx_mutex_put(&spi_lock);
+
+    return st;
+}
 
 void flash_thread_entry(ULONG initial_input)
 {
