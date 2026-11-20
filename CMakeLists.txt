@@ -37,6 +37,9 @@ add_executable(${CMAKE_PROJECT_NAME})
 # Add STM32CubeMX generated sources
 add_subdirectory(cmake/stm32cubemx)
 
+# Keep application and middleware ThreadX layouts consistent.
+target_compile_definitions(stm32cubemx INTERFACE TX_ENABLE_STACK_CHECKING)
+
 # Link directories setup
 target_link_directories(${CMAKE_PROJECT_NAME} PRIVATE
     # Add user defined library search paths
@@ -44,7 +47,19 @@ target_link_directories(${CMAKE_PROJECT_NAME} PRIVATE
 
 # Add sources to executable
 target_sources(${CMAKE_PROJECT_NAME} PRIVATE
-    # Add user sources here
+    Core/Src/heartbeat_thread.c
+    Core/Src/spi_bus.c
+    Core/Src/sensors.c
+    Core/Src/records.c
+    Core/Src/acquisition.c
+    Core/Src/sensor_thread.c
+    Core/Src/sensor_live.c
+    Core/Src/processing_thread.c
+    Core/Src/usb_thread.c
+    Core/Src/usb_rx_thread.c
+    Core/Src/usb_service.c
+    Core/Src/usb_protocol.c
+    Core/Src/usb_console.c
 )
 
 # Add include paths
@@ -66,3 +81,9 @@ target_link_libraries(${CMAKE_PROJECT_NAME}
 
     # Add user defined libraries
 )
+
+# ST USBX controller adapter from X-CUBE-AZRTOS-G4 2.0.0.
+set(USBX_DCD_DIR "${CMAKE_CURRENT_SOURCE_DIR}/Middlewares/ST/usbx/common/usbx_stm32_device_controllers")
+file(GLOB USBX_DCD_SOURCES CONFIGURE_DEPENDS "${USBX_DCD_DIR}/*.c")
+target_include_directories(USBX PUBLIC "${USBX_DCD_DIR}")
+target_sources(USBX PRIVATE ${USBX_DCD_SOURCES})

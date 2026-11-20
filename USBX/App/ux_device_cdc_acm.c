@@ -23,6 +23,7 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
+#include "usb_device.h"
 
 /* USER CODE END Includes */
 
@@ -43,7 +44,8 @@
 
 /* Private variables ---------------------------------------------------------*/
 /* USER CODE BEGIN PV */
-
+UX_SLAVE_CLASS_CDC_ACM * volatile diagnostic_cdc;
+static UINT observed_dtr;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -65,7 +67,9 @@
 VOID USBD_CDC_ACM_Activate(VOID *cdc_acm_instance)
 {
   /* USER CODE BEGIN USBD_CDC_ACM_Activate */
-  UX_PARAMETER_NOT_USED(cdc_acm_instance);
+  usb_connection_changed();
+  diagnostic_cdc = (UX_SLAVE_CLASS_CDC_ACM *)cdc_acm_instance;
+  observed_dtr = diagnostic_cdc->ux_slave_class_cdc_acm_data_dtr_state != 0;
   /* USER CODE END USBD_CDC_ACM_Activate */
 
   return;
@@ -81,6 +85,9 @@ VOID USBD_CDC_ACM_Deactivate(VOID *cdc_acm_instance)
 {
   /* USER CODE BEGIN USBD_CDC_ACM_Deactivate */
   UX_PARAMETER_NOT_USED(cdc_acm_instance);
+  diagnostic_cdc = UX_NULL;
+  observed_dtr = 0;
+  usb_connection_changed();
   /* USER CODE END USBD_CDC_ACM_Deactivate */
 
   return;
@@ -95,7 +102,16 @@ VOID USBD_CDC_ACM_Deactivate(VOID *cdc_acm_instance)
 VOID USBD_CDC_ACM_ParameterChange(VOID *cdc_acm_instance)
 {
   /* USER CODE BEGIN USBD_CDC_ACM_ParameterChange */
-  UX_PARAMETER_NOT_USED(cdc_acm_instance);
+  UX_SLAVE_CLASS_CDC_ACM *cdc = cdc_acm_instance;
+  UINT dtr = cdc->ux_slave_class_cdc_acm_data_dtr_state != 0;
+  /* Hosts repeat line coding/control requests while opening a port. Only
+   * DTR edges delimit this protocol; baud and RTS do not affect USB bytes. */
+  if (dtr == observed_dtr) return;
+  observed_dtr = dtr;
+  /* Abort an old reader even if close raced with its blocking read call. */
+  usb_connection_changed();
+  usb_device_abort(cdc, UX_SLAVE_CLASS_CDC_ACM_ENDPOINT_RCV);
+  usb_device_abort(cdc, UX_SLAVE_CLASS_CDC_ACM_ENDPOINT_XMIT);
   /* USER CODE END USBD_CDC_ACM_ParameterChange */
 
   return;

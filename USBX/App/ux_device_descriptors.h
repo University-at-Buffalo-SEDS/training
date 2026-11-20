@@ -299,7 +299,7 @@ uint16_t USBD_Get_Configuration_Number(uint8_t class_type, uint8_t interface_typ
 #define USBD_STRING_FRAMEWORK_MAX_LENGTH              256U
 
 /* Device CDC-ACM Class */
-#define USBD_CDCACM_EPINCMD_ADDR                      0x81U
+#define USBD_CDCACM_EPINCMD_ADDR                      0x82U
 #define USBD_CDCACM_EPINCMD_FS_MPS                    8U
 #define USBD_CDCACM_EPINCMD_HS_MPS                    8U
 #define USBD_CDCACM_EPIN_ADDR                         0x81U
