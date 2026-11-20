@@ -25,6 +25,7 @@
 #define W25Q_CMD_CHIP_ERASE         0xC7U
 #define W25Q_CMD_JEDEC_ID           0x9FU
 #define W25Q_CMD_RELEASE_PD         0xABU
+#define W25Q_READ_CHUNK             65535U    /* HAL Limit - maximum value of an unsigned 16-bit integer (uint16_t)*/
 
 /* 7.1.1 BUSY, 7.1.2 WEL - W25Q32JV Datasheet */
 #define W25Q_SR1_BUSY               0x01U /* S0 = bit 0 -> 1<<0 */

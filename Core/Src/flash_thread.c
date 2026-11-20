@@ -3,6 +3,7 @@
 #include "stm32g4xx_hal_def.h"
 #include "stm32g4xx_hal_spi.h"
 #include "tx_api.h"
+#include "flash/w25q32jv.h"
 
 TX_THREAD flash_thread;
 #define FLASH_THREAD_STACK_SIZE         4096U   /* Table SDD 4.0*/
@@ -14,7 +15,10 @@ TX_THREAD flash_thread;
 /* flash instructions have at most 8 bytes of input, 8.1.2 & 8.1.3 of flash datasheet */
 #define FLASH_ARG_LIMIT 8
 
-extern TX_MUTEX spi_lock;
+extern TX_MUTEX spi1_mutex;
+extern SPI_HandleTypeDef hspi1;
+static w25q_t flash;  /* W25Q32JV device */   
+static w25q_status_t flash_status; /* W25Q32JV status */
 
 HAL_StatusTypeDef flash_send_command(SPI_HandleTypeDef *hspi, uint8_t command,
                                      const uint8_t *args, size_t argc,
@@ -33,14 +37,14 @@ HAL_StatusTypeDef flash_send_command(SPI_HandleTypeDef *hspi, uint8_t command,
     }
 
     // we might not want to wait forever but I'm not sure what the other options do
-    tx_mutex_get(&spi_lock, TX_WAIT_FOREVER);
+    tx_mutex_get(&spi1_mutex, TX_WAIT_FOREVER);
     HAL_GPIO_WritePin(flash_CS_GPIO_Port, flash_CS_Pin, GPIO_PIN_RESET);
     
     st = HAL_SPI_Transmit(hspi, tx, 1 + argc, FLASH_SPI_TIMEOUT);
 
     if (st != HAL_OK) {
         HAL_GPIO_WritePin(flash_CS_GPIO_Port, flash_CS_Pin, GPIO_PIN_SET);
-        tx_mutex_put(&spi_lock);
+        tx_mutex_put(&spi1_mutex);
         return HAL_ERROR;
     }
 
@@ -49,13 +53,19 @@ HAL_StatusTypeDef flash_send_command(SPI_HandleTypeDef *hspi, uint8_t command,
     }
     
     HAL_GPIO_WritePin(flash_CS_GPIO_Port, flash_CS_Pin, GPIO_PIN_SET);
-    tx_mutex_put(&spi_lock);
+    tx_mutex_put(&spi1_mutex);
 
     return st;
 }
 
 void flash_thread_entry(ULONG initial_input)
 {
+    w25q_init(&flash, &hspi1, flash_CS_GPIO_Port, flash_CS_Pin);
+    if (flash_status != W25Q_OK) {
+        for(;;) {
+            tx_thread_sleep(100);
+        }
+    }
     (void)initial_input; 
     for (;;) {
         tx_thread_sleep(1);
