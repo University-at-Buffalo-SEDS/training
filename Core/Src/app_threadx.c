@@ -81,7 +81,6 @@ UINT App_ThreadX_Init(VOID *memory_ptr)
   if (ret != TX_SUCCESS) return ret;
   ret = acquisition_init();
   if (ret != TX_SUCCESS) return ret;
-  ret = create_heartbeat_thread((TX_BYTE_POOL *)memory_ptr);
 
   ret = create_flash_thread(memory_ptr);
   if (ret != TX_SUCCESS) {

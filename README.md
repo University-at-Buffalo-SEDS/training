@@ -82,11 +82,9 @@ dfu-util -l
 
 The list should show the intended STM32 DFU device and an internal-flash alternate setting. Keep only the intended DFU target connected: the helper uses alternate setting 0 and does not select by USB serial number. The generated application exposes USB CDC, so a normal serial connection does not mean ROM DFU is active. If no device appears, check boot mode, cable, power, and drivers. A Linux `LIBUSB_ERROR_ACCESS` means USB permissions need attention; install an appropriate udev rule for the actual enumerated device rather than running the entire build as root. After flashing, restore normal boot selection and reset if needed. This uses the MCU's built-in ROM loader and requires no application bootloader in this project.
 
-## Board heartbeat and USB bring-up
+## USB and sensor bring-up
 
-The firmware toggles PA8 every 500 ms in `heartbeat_thread.c` and prints
-`Heartbeat: <count>` to the RAM log history via `printf` at each toggle to
-validate the print path. The USB CDC
+Sensor and flash initialization report through `printf`. The USB CDC
 adapter now accepts the SDD's command lines instead of sending unsolicited
 `alive` lines. Send `STATUS` with DTR asserted for firmware, uptime, identity,
 and transport health. Until the flash/data worker is implemented and connected,
@@ -102,7 +100,8 @@ host captures remain available later.
 BMI088/BMP390 drivers and sensor/processing tasks are wired up. In the GUI,
 enable **Live sensors (bypass flash)** for current readings and saved JSON
 snapshots without a storage backend. CLI: `datalogger_client.py --port <port>
-live --follow`. The flash driver and data task remain to be implemented;
+live --follow`. The merged flash driver now initializes at boot; session recording
+and the data-worker integration remain to be implemented;
 [sensor integration](docs/sensor-integration.md) describes their start/stop,
 record-queue and shared-SPI interfaces.
 
@@ -145,11 +144,11 @@ and the application controller startup. The IOC alone does not encode all of
 these application additions.
 
 If the new image does not enumerate, connect ST-LINK to SWD and check whether
-execution reaches `main`, the heartbeat task, or `Error_Handler`. ROM DFU
+execution reaches `main`, the sensor task, or `Error_Handler`. ROM DFU
 (BOOT0/reset with the required boot options) is another independent MCU/USB
 check; it does not require the application to run. Lack of enumeration alone
 cannot distinguish bad firmware from cabling, power, boot selection, or board
-assembly. A blinking LED plus advancing USB uptime confirms MCU execution and
+assembly. Advancing sensor samples and USB uptime confirm MCU execution and
 USB communication; sensor and flash health still need their own checks.
 
 ## Hardware configuration and regeneration

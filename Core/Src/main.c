@@ -44,7 +44,6 @@
 
 /* Private variables ---------------------------------------------------------*/
 SPI_HandleTypeDef hspi1;
-TX_MUTEX spi1_mutex;
 
 PCD_HandleTypeDef hpcd_USB_FS;
 
@@ -110,7 +109,6 @@ int main(void)
 
   /* USER CODE END 2 */
 
-  tx_mutex_create(&spi1_mutex, "spi1 mutex", TX_INHERIT);
 
   MX_ThreadX_Init();
 

@@ -1,7 +1,8 @@
 #include "spi_bus.h"
 
 extern SPI_HandleTypeDef hspi1;
-static TX_MUTEX spi1_mutex;
+/* Shared by sensor transactions and the W25Q flash driver. */
+TX_MUTEX spi1_mutex;
 static const uint16_t pins[] = {accel_CS_Pin, gyro_CS_Pin, baro_CS_Pin, flash_CS_Pin};
 
 UINT spi_bus_init(void)

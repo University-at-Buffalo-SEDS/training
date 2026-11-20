@@ -51,7 +51,6 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     
     ${CMAKE_SOURCE_DIR}/Core/Src/flash_thread.c
     ${CMAKE_SOURCE_DIR}/Drivers/flash/w25q32jv.c
-    Core/Src/heartbeat_thread.c
     Core/Src/spi_bus.c
     Core/Src/sensors.c
     Core/Src/records.c

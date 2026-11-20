@@ -4,7 +4,7 @@
 
 `Core/Inc/T-Threads.h` follows RFBoard's `RF-Threads.h`: it declares thread
 objects, entry functions, and creation functions. `app_threadx.c` creates the
-heartbeat and acquisition workers; USBX class initialization calls `create_usb_thread()` after installing
+flash and acquisition workers; USBX class initialization calls `create_usb_thread()` after installing
 the class. The USB adapter starts the PMA/DCD/controller once. There is no
 additional generated USB application thread.
 
@@ -14,7 +14,7 @@ additional generated USB application thread.
 | Processing | 10 / 10 | 4096 B | `Core/Src/processing_thread.c` |
 | USB adapter | 20 / 20 | 2048 B | `Core/Src/usb_thread.c` |
 | USB receive | 21 / 21 | 1024 B | `Core/Src/usb_rx_thread.c` |
-| LED heartbeat | 25 / 25 | 2048 B | `Core/Src/heartbeat_thread.c` |
+| Flash bring-up | 15 / 15 | 4096 B | `Core/Src/flash_thread.c` |
 
 No worker uses a time slice. The extra receive worker is an implementation
 addition to the SDD's single USB adapter: this USBX version's synchronous OUT

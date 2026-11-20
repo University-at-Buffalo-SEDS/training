@@ -63,7 +63,10 @@ No fake storage task drains queues or claims persistence. Session commands remai
 NOT_READY until storage registers USB readiness. STOP affects session records;
 live RAM snapshots continue updating.
 
-Storage must use `spi_bus_read`/`spi_bus_write`. The priority-inheritance mutex
+Sensors use `spi_bus_read`/`spi_bus_write`; the merged W25Q driver holds the same
+global `spi1_mutex` for its complete transactions. The mutex is created once by
+`spi_bus_init()` during acquisition setup, before flash or sensor tasks run.
+The priority-inheritance mutex
 covers header/dummy/payload and select cleanup on all paths. Mutex acquisition
 is bounded to about 100 ms and each HAL transfer to 10 ms. Selects PB11–PB14 are
 exclusive. Release SPI during flash internal busy time, queue waits and USB I/O.
