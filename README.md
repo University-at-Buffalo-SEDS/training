@@ -54,6 +54,17 @@ The script is checked in with executable permissions. On Windows use `py -3 buil
 
 CMake presets are also available: `cmake --preset Debug` then `cmake --build --preset Debug` (or `Release`). Presets use `build/Debug` and `build/Release`; the helper additionally converts ELF to BIN.
 
+Every `build.py` build also prints the linker memory breakdown, including when
+Ninja reports no work. The region table shows origin, used/capacity/free bytes,
+and usage percentage from the evaluated linker map and ELF. A second table
+lists every ELF section's byte size, runtime address (VMA), load address (LMA),
+and memory regions. Initialized `.data` counts toward both RAM and FLASH;
+`.bss` and heap/stack reservations count toward RAM. Debug sections are listed
+separately in the same table and consume no device memory. Region usage includes
+alignment gaps and reflects link-time reservations, not runtime stack peaks.
+The report uses GNU `arm-none-eabi-objdump` from the ARM toolchain; set `OBJDUMP`
+to override its executable path.
+
 ### Install dfu-util for USB flashing
 
 `dfu-util` is optional if you flash through ST-LINK. Check first with `dfu-util --version`.
@@ -71,13 +82,83 @@ dfu-util -l
 
 The list should show the intended STM32 DFU device and an internal-flash alternate setting. Keep only the intended DFU target connected: the helper uses alternate setting 0 and does not select by USB serial number. The generated application exposes USB CDC, so a normal serial connection does not mean ROM DFU is active. If no device appears, check boot mode, cable, power, and drivers. A Linux `LIBUSB_ERROR_ACCESS` means USB permissions need attention; install an appropriate udev rule for the actual enumerated device rather than running the entire build as root. After flashing, restore normal boot selection and reset if needed. This uses the MCU's built-in ROM loader and requires no application bootloader in this project.
 
+## Board heartbeat and USB bring-up
+
+The firmware toggles PA8 every 500 ms in `heartbeat_thread.c` and prints
+`Heartbeat: <count>` to the RAM log history via `printf` at each toggle to
+validate the print path. The USB CDC
+adapter now accepts the SDD's command lines instead of sending unsolicited
+`alive` lines. Send `STATUS` with DTR asserted for firmware, uptime, identity,
+and transport health. Until the flash/data worker is implemented and connected,
+STATUS reports `state=NOT_READY`; session commands return `ERR NOT_READY`.
+
+The [USB client](client/README.md) provides a Tk desktop app and CLI, binary-safe
+CRC-checked exports/resume, explicit deletion confirmation, and saved print
+viewing. `printf`, stdout/stderr, and `__io_putchar` feed an 8 KiB RAM history;
+the client retrieves and saves it without mixing prints into binary downloads.
+RAM history survives a disconnected host but is cleared by board reset. Saved
+host captures remain available later.
+
+BMI088/BMP390 drivers and sensor/processing tasks are wired up. In the GUI,
+enable **Live sensors (bypass flash)** for current readings and saved JSON
+snapshots without a storage backend. CLI: `datalogger_client.py --port <port>
+live --follow`. The flash driver and data task remain to be implemented;
+[sensor integration](docs/sensor-integration.md) describes their start/stop,
+record-queue and shared-SPI interfaces.
+
+```sh
+python3 -m pip install -r client/requirements.txt
+python3 client/datalogger_gui.py
+python3 client/datalogger_client.py --port /dev/cu.usbmodemXXXX logs --follow
+```
+
+Thread declarations live in `Core/Inc/T-Threads.h`, with one source file per
+thread, matching RFBoard's layout. The USB adapter uses priority 20 and a 2048 B
+static stack; a priority-21 receiver with a 1024 B stack handles blocking USBX
+reads. [USB integration](docs/usb-integration.md) documents queues, buffer
+ownership, exact replies, stack checking, and flash-worker integration.
+
+The supplied schematic shows the 3.3 V regulator powered from the XT30 battery
+input through SW1; USB VBUS only serves the USB protection circuit. Power the
+board through its normal supply and verify the 3.3 V rail. USB alone is not a
+board power source in this schematic revision.
+
+Flash the Debug build using the methods above, then connect the board's native
+USB data connector to the computer. On macOS it should create a
+`/dev/cu.usbmodem...` device (VID:PID `0483:5710`). Open it with, for example,
+`screen /dev/cu.usbmodem<actual-suffix> 115200`. The USB CDC baud setting does not
+change the MCU clock. Exit screen using Ctrl-A, then backslash.
+An FT232R `/dev/cu.usbserial...` device is a separate UART adapter and does not
+confirm that the STM32 is executing this application.
+
+The adapter in `Middlewares/ST/usbx/common/usbx_stm32_device_controllers` is
+copied unchanged from ST's X-CUBE-AZRTOS-G4 2.0.0 pack. The root CMake file
+builds it. USB bring-up now includes PMA buffer allocation, HAL interrupt
+routing, DCD initialization, controller start, USB SOF clock recovery, distinct
+CDC bulk/notification endpoint addresses, and sufficient memory pools.
+The debugger symbols `diagnostic_usb_start_status` and
+`diagnostic_usb_lines_sent` expose startup status and completed transmissions.
+
+The IOC records the USB memory sizes and CDC notification endpoint (`0x82`).
+After CubeMX regeneration, review the USB IRQ hookup in the `USER CODE` sections
+and the application controller startup. The IOC alone does not encode all of
+these application additions.
+
+If the new image does not enumerate, connect ST-LINK to SWD and check whether
+execution reaches `main`, the heartbeat task, or `Error_Handler`. ROM DFU
+(BOOT0/reset with the required boot options) is another independent MCU/USB
+check; it does not require the application to run. Lack of enumeration alone
+cannot distinguish bad firmware from cabling, power, boot selection, or board
+assembly. A blinking LED plus advancing USB uptime confirms MCU execution and
+USB communication; sensor and flash health still need their own checks.
+
 ## Hardware configuration and regeneration
 
 Open `datalogger.ioc` in CubeMX. Keep the project name `datalogger`, CMake toolchain, and generation location at this checkout's root. The generated baseline uses STM32CubeG4 1.6.3 and X-CUBE-AZRTOS-G4 2.0.0. Commit IOC changes together with their generated sources. Put application additions in preserved `USER CODE` sections and separate modules registered in the root CMake file. Review the generated diff and rebuild both modes before a PR; see [BRANCHES.md](BRANCHES.md).
 
 SPI1 is full-duplex master, mode 0, 8-bit, MSB first, software NSS, currently 8 MHz from a 16 MHz peripheral clock. PA5 is SCK, PA6 MISO, and PA7 MOSI. PB11/PB12/PB13 select the accelerometer/gyroscope/barometer; **PB14 (`flash_CS`) selects the W25Q32JV flash**. All four active-low selects initialize high. PA13/PA14 preserve SWD.
 
-This is a buildable generated starter, not completed logger firmware. The filled SDD defines the intended sensor, processing, and data workers. Driver logic, logging, the USB command adapter/client, tick/pool sizing, timing validation, and hardware tests remain implementation work. The guide's example timing values are proposals; the IOC and reviewed generated code describe the current configuration.
+This is a buildable generated starter, not completed logger firmware. The filled SDD defines the intended sensor, processing, and data workers. Sensor/flash driver logic, durable logging, connecting the data worker to the USB queues, timing validation, and hardware tests remain implementation work. The USB transport and client are implemented; they do not fabricate storage sessions. The guide's example timing values are proposals; the IOC and reviewed generated code describe the current configuration.
 
 To compile the filled SDD from this repository root:
 

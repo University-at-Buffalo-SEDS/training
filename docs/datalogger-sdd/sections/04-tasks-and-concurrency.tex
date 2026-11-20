@@ -7,7 +7,9 @@ Processing & 10 & 4096 B & Wait on raw queue; convert/compensate, produce one re
 Data & 15 & 4096 B & Record/command event or flash deadline; own log allocation, persistence, recovery and deletion.\\
 USB adapter & 20 & 4096 B & Proposed infrastructure worker; bounded receive/transmit and command framing. Not a fourth application worker.\\
 \end{SDDTable}
-ThreadX timer and USBX internal workers are additional infrastructure. Inventory their actual priorities, stacks and memory pools during implementation. The generated USB application thread currently uses priority 10 and a 1024-byte stack; it is empty. Move its adapter work to the proposed budget when implementing the protocol.
+ThreadX timer and USBX internal workers are additional infrastructure. Inventory their actual priorities, stacks and memory pools during implementation. The original generated USB application thread used priority 10 and a 1024-byte stack; it was empty. The adapter implementation below replaces that worker using the proposed budget.
+
+USB implementation note: the adapter now uses the proposed priority 20 and 2048-byte static stack. A separate priority-21 receiver with a 1024-byte static stack isolates the bundled USBX blocking OUT read so replies remain serviceable. The heartbeat uses priority 25 and 2048 bytes. Shared declarations are in \texttt{T-Threads.h}, with one source file per thread. The generated USB application worker is replaced rather than duplicated. ThreadX stack checking is enabled; high-water measurements and hardware validation remain required. See \texttt{docs/usb-integration.md} for the implementation inventory and data-worker boundary.
 
 \subsection{Queue contracts}
 Each copied envelope is 64 bytes: 16 aligned 32-bit \texttt{ULONG} words. ThreadX message size is in words; backing-array size is in bytes. Compile-time assertions check both sizes. Initialize every byte; never enqueue pointers to temporary stack objects.
@@ -26,3 +28,5 @@ Create one \texttt{spi1\_mutex} with \texttt{TX\_INHERIT}. Hold it only during a
 Use static queue backing arrays and stacks, plus two 512-byte USB chunk buffers. A buffer moves FREE to DATA to USB to FREE; queue an index, length and generation, not a dangling pointer. Successful queue transfer passes ownership; failed transfer retains it. Disconnect cancels queued work and releases buffers only after active USB transfers complete or abort. No ISR allocates memory, performs blocking HAL SPI, logs synchronously, or runs program/erase operations.
 
 Data services up to eight record steps, advances one pending flash state, then one command step before checking other inputs again. A data event flag wakes it for records or commands; a bounded timed wait also services flash deadlines. It must never wait forever on one queue while work waits on another.
+
+Sensor implementation note: the sensor and processing workers now use the proposed priorities and stack budgets. BMI088/BMP390 acquisition, compensation, copied record queues and producer cutoff are implemented; the data worker and flash driver remain open. Sensor polling continues for the adapter-local \texttt{LIVE} snapshot while session logging is stopped. See \texttt{docs/sensor-integration.md} for the implementation boundary.

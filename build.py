@@ -185,6 +185,102 @@ def pick_elf(build_dir: Path, preferred_name: Optional[str]) -> Path:
         f"Tip: check your CMake target output or pass --artifact <name>."
     )
 
+@dataclass(frozen=True)
+class MemoryRegion:
+    name: str
+    origin: int
+    length: int
+
+@dataclass(frozen=True)
+class ElfSection:
+    name: str
+    size: int
+    vma: int
+    lma: int
+    flags: frozenset[str]
+
+def parse_memory_regions(map_text: str) -> list[MemoryRegion]:
+    # Read the linker's evaluated MEMORY table, rather than guessing constants
+    # or trying to evaluate linker-script expressions ourselves.
+    heading = "Memory Configuration"
+    if heading not in map_text:
+        raise FriendlyError("Linker map has no Memory Configuration table.")
+    table = map_text.split(heading, 1)[1].split("Linker script and memory map", 1)[0]
+    regions = []
+    for line in table.splitlines():
+        match = re.match(r"^\s*(\S+)\s+(0x[0-9a-fA-F]+)\s+(0x[0-9a-fA-F]+)(?:\s|$)", line)
+        if match and match[1] != "*default*":
+            regions.append(MemoryRegion(match[1], int(match[2], 16), int(match[3], 16)))
+    if not regions:
+        raise FriendlyError("No named memory regions found in linker map.")
+    return regions
+
+def parse_elf_sections(objdump_text: str) -> list[ElfSection]:
+    lines = objdump_text.splitlines()
+    sections = []
+    for index, line in enumerate(lines):
+        match = re.match(
+            r"^\s*\d+\s+(\S+)\s+([0-9a-fA-F]+)\s+([0-9a-fA-F]+)\s+([0-9a-fA-F]+)\s+"
+            r"[0-9a-fA-F]+\s+2\*\*\d+\s*$", line)
+        if match:
+            flags = frozenset(part.strip() for part in lines[index + 1].split(",")) if index + 1 < len(lines) else frozenset()
+            sections.append(ElfSection(match[1], int(match[2], 16), int(match[3], 16),
+                                       int(match[4], 16), flags))
+    if not sections:
+        raise FriendlyError("objdump returned no recognizable ELF sections.")
+    return sections
+
+def region_for(regions: list[MemoryRegion], address: int, size: int) -> Optional[MemoryRegion]:
+    return next((r for r in regions if r.origin <= address < r.origin + r.length
+                 and address + size <= r.origin + r.length), None)
+
+def format_memory_report(regions: list[MemoryRegion], sections: list[ElfSection]) -> str:
+    used = {r.name: 0 for r in regions}
+    rows = []
+    for section in sections:
+        runtime = region_for(regions, section.vma, section.size) if "ALLOC" in section.flags else None
+        load = region_for(regions, section.lma, section.size) if "LOAD" in section.flags else None
+        # LOAD is essential: NOBITS .bss/heap can have a flash LMA in objdump,
+        # but have no initialization bytes occupying that flash address.
+        for region, address in ((runtime, section.vma), (load, section.lma)):
+            if region is not None and section.size:
+                used[region.name] = max(used[region.name], address + section.size - region.origin)
+        rows.append((section, runtime.name if runtime else "-", load.name if load else "-"))
+
+    region_width = max(8, *(len(r.name) for r in regions))
+    lines = ["Linker memory regions (bytes; used includes alignment gaps)",
+             f"{'Region':<{region_width}}  {'Origin':>10}  {'Used (B)':>12}  {'Capacity (B)':>12}  {'Free (B)':>12}  {'Used %':>8}"]
+    for r in regions:
+        count = used[r.name]
+        percent = f"{100 * count / r.length:.2f}%" if r.length else "n/a"
+        lines.append(f"{r.name:<{region_width}}  0x{r.origin:08X}  {count:>12,}  {r.length:>12,}  {r.length - count:>12,}  {percent:>8}")
+    section_width = max(7, *(len(s.name) for s in sections))
+    lines += ["", "All ELF sections (VMA = runtime address; LMA = load address)",
+              f"{'Section':<{section_width}}  {'Size (B)':>12}  {'VMA':>10}  {'LMA':>10}  {'Runtime':<{region_width}}  {'Load':<{region_width}}"]
+    for s, runtime, load in rows:
+        lines.append(f"{s.name:<{section_width}}  {s.size:>12,}  0x{s.vma:08X}  0x{s.lma:08X}  {runtime:<{region_width}}  {load:<{region_width}}")
+    lines += ["", "Initialized data occupies both its RAM runtime region and its FLASH load region.",
+              "BSS/heap/stack reserve RAM only. Debug/metadata sections marked '-' consume no device memory."]
+    return "\n".join(lines)
+
+def show_memory_report(ui: UI, elf: Path, map_path: Path) -> None:
+    if not map_path.is_file():
+        raise FriendlyError(f"Linker map not found: {map_path}\n"
+                            "Enable the linker -Map output to report memory regions.")
+    objdump = os.environ.get("OBJDUMP", "arm-none-eabi-objdump")
+    try:
+        result = subprocess.run([objdump, "-h", str(elf)], check=True, capture_output=True,
+                                text=True, env={**os.environ, "LC_ALL": "C"})
+    except FileNotFoundError:
+        raise FriendlyError(f"Command not found: {objdump}\n"
+                            "Install GNU Arm binutils or set OBJDUMP to its executable path.")
+    except subprocess.CalledProcessError as error:
+        raise FriendlyError(f"Cannot inspect ELF sections: {error.stderr.strip()}")
+    regions = parse_memory_regions(map_path.read_text(encoding="utf-8", errors="replace"))
+    sections = parse_elf_sections(result.stdout)
+    ui.say("info", f"Memory breakdown: {elf.name} ({map_path.name})")
+    print(format_memory_report(regions, sections), flush=True)
+
 def wait_port(host: str, port: int, timeout_s: float = 5.0) -> None:
     deadline = time.time() + timeout_s
     last_err = None
@@ -234,6 +330,12 @@ def configure_and_build(ui: UI, cfg: BuildConfig) -> tuple[Path, Path]:
     # Prefer arm-none-eabi-objcopy but allow override via env
     objcopy = os.environ.get("OBJCOPY", "arm-none-eabi-objcopy")
     run(ui, [objcopy, "-O", "binary", str(elf), str(bin_path)], cwd=cfg.repo_root)
+
+    # Print even when Ninja did not relink, unlike --print-memory-usage alone.
+    map_path = elf.with_suffix(".map")
+    if not map_path.is_file():
+        map_path = cfg.build_dir / f"{cfg.project_name}.map"
+    show_memory_report(ui, elf, map_path)
 
     ui.say("ok", f"Built: {elf.name} -> {bin_path.name}")
     return elf, bin_path
@@ -414,7 +516,7 @@ def make_parser() -> argparse.ArgumentParser:
         mode.add_argument("--debug", action="store_true", help="Debug build (default).")
         mode.add_argument("--release", action="store_true", help="Release build.")
 
-    b = sub.add_parser("build", help="Configure + build + objcopy to .bin")
+    b = sub.add_parser("build", help="Configure + build + objcopy + full memory breakdown")
     add_mode_and_common(b)
 
     f = sub.add_parser("flash", help="Build then flash")
