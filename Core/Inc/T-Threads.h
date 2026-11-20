@@ -1,5 +1,4 @@
 #pragma once
-#include "telemetry.h"
 #include "tx_api.h"
 
 #define ABORT_FLAG  (0x01U)

@@ -45,7 +45,8 @@ extern TX_MUTEX spi1_mutex;
 #define W25Q_T_PUW_MIN_MS       5U 
 #define W25Q_SPI_TIMEOUT_MS     5U 
 #define W25Q_LOCK_TIMEOUT_MS    5U
-#define W25Q_VERIFY_CHUNK       64U
+#define W25Q_VERIFY_CHUNK 64U
+#define W25Q_READ_CHUNK 65535U
 #define MS_TO_TICKS(ms) ((ULONG)(((ULONG)(ms) * TX_TIMER_TICKS_PER_SECOND + 999UL) / 1000UL))
 
 typedef enum {

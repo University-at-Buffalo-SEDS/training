@@ -15,7 +15,7 @@ static w25q_status_t bus_acquire(w25q_t *dev)
         return W25Q_ERR_LOCK;
     }
     /* Accelerometer PB11, gyroscope PB12, barometer PB13, set pin high */
-    HAL_GPIO_WritePin(GPIOB, gyro_CS_Pin | accelerometer_CS_Pin | barometer_CS_Pin, GPIO_PIN_SET);
+    HAL_GPIO_WritePin(GPIOB, gyro_CS_Pin | accel_CS_Pin | baro_CS_Pin, GPIO_PIN_SET);
     return W25Q_OK;
 }
 
