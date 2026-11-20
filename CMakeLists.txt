@@ -47,11 +47,13 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     # Add user sources here
     
     ${CMAKE_SOURCE_DIR}/Core/Src/flash_thread.c
+    ${CMAKE_SOURCE_DIR}/Drivers/flash/w25q32jv.c
 )
 
 # Add include paths
 target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE
     # Add user defined include paths
+    ${CMAKE_SOURCE_DIR}/Drivers/flash
 )
 
 # Add project symbols (macros)
