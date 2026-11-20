@@ -3,7 +3,8 @@
 #include "stm32g4xx_hal_def.h"
 #include "stm32g4xx_hal_spi.h"
 #include "tx_api.h"
-// #include "Drivers/flash/w25q32jv.h"
+#include "w25q32jv.h"
+#include <stdio.h>
 
 TX_THREAD flash_thread;
 #define FLASH_THREAD_STACK_SIZE         4096U   /* Table SDD 4.0*/
@@ -60,14 +61,14 @@ HAL_StatusTypeDef flash_send_command(SPI_HandleTypeDef *hspi, uint8_t command,
 
 void flash_thread_entry(ULONG initial_input)
 {
-    /*
-    w25q_init(&flash, &hspi1, flash_CS_GPIO_Port, flash_CS_Pin);
-    if (flash_status != W25Q_OK) {
-        for(;;) {
-            tx_thread_sleep(100);
-        }
-    } */
-    (void)initial_input; 
+    (void)initial_input;
+
+    w25q_t flash;
+    w25q_status_t ret;
+
+    ret = w25q_init(&flash, &hspi1, flash_CS_GPIO_Port, flash_CS_Pin);
+    printf("flash init return code: %d\n", ret);
+  
     for (;;) {
         tx_thread_sleep(1);
     }

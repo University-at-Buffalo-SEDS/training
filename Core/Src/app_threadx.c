@@ -20,6 +20,8 @@
 
 /* Includes ------------------------------------------------------------------*/
 #include "app_threadx.h"
+#include "T-Threads.h"
+#include "tx_api.h"
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
@@ -64,6 +66,11 @@ UINT App_ThreadX_Init(VOID *memory_ptr)
   /* USER CODE END App_ThreadX_MEM_POOL */
 
   /* USER CODE BEGIN App_ThreadX_Init */
+
+  ret = create_flash_thread(memory_ptr);
+  if (ret != TX_SUCCESS) {
+      return ret;
+  }
 
   /* USER CODE END App_ThreadX_Init */
 

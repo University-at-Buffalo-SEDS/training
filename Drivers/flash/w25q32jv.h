@@ -38,9 +38,6 @@ EFh Manufacturer ID
 16h Capacity */
 #define W25Q32JV_JEDEC_ID           0xEF4016U 
 
-/* SDD 4.2 */
-extern TX_MUTEX spi1_mutex;
-
 #define W25Q_T_PP_MAX_MS        3U
 #define W25Q_T_SE_MAX_MS        400U
 #define W25Q_T_PUW_MIN_MS       5U 
