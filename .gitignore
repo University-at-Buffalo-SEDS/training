@@ -16,3 +16,5 @@ __pycache__/
 
 /.venv/
 /captures/
+
+.vscode/c_cpp_properties.json
