@@ -25,7 +25,10 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-
+#include "main.h"
+#include "T-Threads.h"
+#include "acquisition.h"
+#include <stdio.h>
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -45,7 +48,12 @@
 
 /* Private variables ---------------------------------------------------------*/
 /* USER CODE BEGIN PV */
-
+TX_THREAD * volatile diagnostic_stack_error_thread;
+static void stack_error(TX_THREAD *thread)
+{
+  diagnostic_stack_error_thread = thread;
+  Error_Handler();
+}
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -66,6 +74,14 @@ UINT App_ThreadX_Init(VOID *memory_ptr)
   /* USER CODE END App_ThreadX_MEM_POOL */
 
   /* USER CODE BEGIN App_ThreadX_Init */
+
+  setvbuf(stdout, NULL, _IONBF, 0);
+  setvbuf(stderr, NULL, _IONBF, 0);
+  ret = tx_thread_stack_error_notify(stack_error);
+  if (ret != TX_SUCCESS) return ret;
+  ret = acquisition_init();
+  if (ret != TX_SUCCESS) return ret;
+  ret = create_heartbeat_thread((TX_BYTE_POOL *)memory_ptr);
 
   ret = create_flash_thread(memory_ptr);
   if (ret != TX_SUCCESS) {
@@ -96,5 +112,4 @@ void MX_ThreadX_Init(void)
 }
 
 /* USER CODE BEGIN 1 */
-
 /* USER CODE END 1 */

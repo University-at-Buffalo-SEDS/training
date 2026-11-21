@@ -23,7 +23,8 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-
+#include "main.h"
+#include "T-Threads.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -46,14 +47,13 @@
 static ULONG cdc_acm_interface_number;
 static ULONG cdc_acm_configuration_number;
 static UX_SLAVE_CLASS_CDC_ACM_PARAMETER cdc_acm_parameter;
-static TX_THREAD ux_device_app_thread;
+
 
 /* USER CODE BEGIN PV */
-
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
-static VOID app_ux_device_thread_entry(ULONG thread_input);
+
 /* USER CODE BEGIN PFP */
 
 /* USER CODE END PFP */
@@ -155,45 +155,12 @@ UINT MX_USBX_Device_Init(VOID *memory_ptr)
     /* USER CODE END USBX_DEVICE_CDC_ACM_REGISTER_ERORR */
   }
 
-  /* Allocate the stack for device application main thread */
-  if (tx_byte_allocate(byte_pool, (VOID **) &pointer, UX_DEVICE_APP_THREAD_STACK_SIZE,
-                       TX_NO_WAIT) != TX_SUCCESS)
-  {
-    /* USER CODE BEGIN MAIN_THREAD_ALLOCATE_STACK_ERORR */
-    return TX_POOL_ERROR;
-    /* USER CODE END MAIN_THREAD_ALLOCATE_STACK_ERORR */
-  }
-
-  /* Create the device application main thread */
-  if (tx_thread_create(&ux_device_app_thread, UX_DEVICE_APP_THREAD_NAME, app_ux_device_thread_entry,
-                       0, pointer, UX_DEVICE_APP_THREAD_STACK_SIZE, UX_DEVICE_APP_THREAD_PRIO,
-                       UX_DEVICE_APP_THREAD_PREEMPTION_THRESHOLD, UX_DEVICE_APP_THREAD_TIME_SLICE,
-                       UX_DEVICE_APP_THREAD_START_OPTION) != TX_SUCCESS)
-  {
-    /* USER CODE BEGIN MAIN_THREAD_CREATE_ERORR */
-    return TX_THREAD_ERROR;
-    /* USER CODE END MAIN_THREAD_CREATE_ERORR */
-  }
-
   /* USER CODE BEGIN MX_USBX_Device_Init1 */
+  ret = create_usb_thread(byte_pool);
 
   /* USER CODE END MX_USBX_Device_Init1 */
 
   return ret;
 }
 
-/**
-  * @brief  Function implementing app_ux_device_thread_entry.
-  * @param  thread_input: User thread input parameter.
-  * @retval none
-  */
-static VOID app_ux_device_thread_entry(ULONG thread_input)
-{
-  /* USER CODE BEGIN app_ux_device_thread_entry */
-  TX_PARAMETER_NOT_USED(thread_input);
-  /* USER CODE END app_ux_device_thread_entry */
-}
-
-/* USER CODE BEGIN 1 */
-
-/* USER CODE END 1 */
+/* USB application workers live in Core/Src/usb*_thread.c. */
