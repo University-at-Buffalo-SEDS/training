@@ -1,108 +1,10 @@
 #include "w25q32jv.h"
 #include "main.h"
+#include "spi_bus.h"
+#include "stm32g4xx_hal_def.h"
 #include "tx_api.h"         
+#include <stdint.h>
 #include <string.h>
-
-/* Acquires the SPI bus
- * Takes spi1_mutex, then forces the other chip selects high so only one device can be selected at a time
- * @param dev - pointer to the W25Q32JV device
- * @return - W25Q_OK if the bus is acquired, or W25Q_ERR_LOCK if the mutex is not available in time
- */
-static w25q_status_t bus_acquire(w25q_t *dev)
-{
-    (void)dev;
-    if (tx_mutex_get(&spi1_mutex, MS_TO_TICKS(W25Q_LOCK_TIMEOUT_MS)) != TX_SUCCESS) {
-        return W25Q_ERR_LOCK;
-    }
-    /* Accelerometer PB11, gyroscope PB12, barometer PB13, set pin high */
-    HAL_GPIO_WritePin(GPIOB, gyro_CS_Pin | accel_CS_Pin | baro_CS_Pin, GPIO_PIN_SET);
-    return W25Q_OK;
-}
-
-/* Releases the SPI bus 
- * Hold the bus only for one complete wire transaction, never across a busy wait
- * @param dev - pointer to the W25Q32JV device
- */
-static void bus_release(w25q_t *dev)
-{
-    (void)dev;
-    tx_mutex_put(&spi1_mutex);
-}
-
-/* Device is selected when CS is low
- * @param dev - pointer to the W25Q32JV device
- */
-static inline void cs_low(w25q_t *dev)
-{
-    HAL_GPIO_WritePin(dev -> cs_port, dev -> cs_pin, GPIO_PIN_RESET);
-}
-
-/* Device is deselected when CS is high 
- * The rising edge is what makes the chip execute a program or erase
- * @param dev - pointer to the W25Q32JV device
- */
-static inline void cs_high(w25q_t *dev)
-{
-    HAL_GPIO_WritePin(dev -> cs_port, dev -> cs_pin, GPIO_PIN_SET);
-}
-
-/* Transmit data over SPI bus 
- * @param dev - pointer to the W25Q32JV device
- * @param buff - Buffer containing data to transmit
- * @param size - Number of bytes to transmit, at most 65535 (HAL limit)
- * @return - W25Q_OK if the data is transmitted successfully, W25Q_ERR_PARAM if size is too large, or W25Q_ERR_HAL otherwise
- */
-static w25q_status_t tx(w25q_t *dev, const uint8_t *buff, size_t size)
-{
-    /* Check if it is over HAL limit */
-    if (size > 0xFFFFU) {
-        return W25Q_ERR_PARAM;
-    }
-    /* Send data over SPI bus in polling mode */
-    if (HAL_SPI_Transmit(dev -> hspi, (uint8_t *)buff, (uint16_t)size, W25Q_SPI_TIMEOUT_MS) != HAL_OK) {
-        return W25Q_ERR_HAL;
-    }
-    return W25Q_OK;
-}
-
-/* Receive data over SPI bus 
- * In full-duplex master mode HAL clocks out the old contents of buff, which the flash ignores during a read
- * @param dev - pointer to the W25Q32JV device
- * @param buff - Buffer containing data to receive
- * @param size - Number of bytes to receive, at most 65535 (HAL limit)
- * @return - W25Q_OK if the data is received successfully, W25Q_ERR_PARAM if size is too large, or W25Q_ERR_HAL otherwise
- */
-static w25q_status_t rx(w25q_t *dev, uint8_t *buff, size_t size)
-{
-    // Check if it is over HAL limit
-    if (size > 0xFFFFU) {
-        return W25Q_ERR_PARAM;
-    }
-    /* Receive data over SPI bus in polling mode */
-    if (HAL_SPI_Receive(dev -> hspi, buff, (uint16_t)size, W25Q_SPI_TIMEOUT_MS) != HAL_OK) {
-        return W25Q_ERR_HAL;
-    }
-    return W25Q_OK;
-}
-
-/* Read the first status register while the caller already holds the bus 
- * Allowed at any time, even while the chip is busy (8.2 Read Status Register 1, W25Q32JV Datasheet)
- * @param dev - pointer to the W25Q32JV device
- * @param sr - Buffer to store the status register value
- * @return - W25Q_OK if the status is read successfully, or W25Q_ERR_HAL otherwise
- */
-static w25q_status_t read_sr1_locked(w25q_t *dev, uint8_t *sr)
-{
-    uint8_t cmd = W25Q_CMD_READ_STATUS1;
-    w25q_status_t status;
-    cs_low(dev);
-    status = tx(dev, &cmd, 1);
-    if (status == W25Q_OK) {
-        status = rx(dev, sr, 1);
-    }
-    cs_high(dev);
-    return status;
-}
 
 /* Read the first status register 
  * @param dev - pointer to the W25Q32JV device
@@ -111,13 +13,15 @@ static w25q_status_t read_sr1_locked(w25q_t *dev, uint8_t *sr)
  */
 static w25q_status_t read_sr1(w25q_t *dev, uint8_t *sr)
 {
-    w25q_status_t st = bus_acquire(dev);
-    if (st != W25Q_OK) { 
-        return st; 
+
+    uint8_t cmd = W25Q_CMD_READ_STATUS1;
+    HAL_StatusTypeDef status;
+    status = spi_bus_read(SPI_FLASH, &cmd, 1, sr, 1);
+    if (status == HAL_OK) {
+        return W25Q_OK;
+    } else {
+        return W25Q_ERR_HAL;
     }
-    st = read_sr1_locked(dev, sr);
-    bus_release(dev);
-    return st;
 }
 
 /* Waits until the device is not busy or timeout occurs
@@ -170,14 +74,17 @@ static inline int w25q_range_ok(uint32_t addr, size_t len)
  * @param dev - pointer to the W25Q32JV device
  * @return - W25Q_OK if the command is sent successfully, or W25Q_ERR_HAL otherwise
  */
-static w25q_status_t write_enable_cmd_locked(w25q_t *dev)
+static w25q_status_t write_enable_cmd(w25q_t *dev)
 {
     uint8_t cmd = W25Q_CMD_WRITE_ENABLE;
-    w25q_status_t st;
-    cs_low(dev); // CS selected 
-    st = tx(dev, &cmd, 1); // Send Write Enable command, command size 1 byte
-    cs_high(dev); // CS deselected
-    return st;
+    HAL_StatusTypeDef st;
+    st = spi_bus_write(SPI_FLASH, &cmd,
+                       1); // Send Write Enable command, command size 1 byte
+    if (st == HAL_OK) {
+        return W25Q_OK;
+    } else {
+        return W25Q_ERR_HAL;
+    }
 }
 
 /* Acquires the SPI bus, issues the Write Enable (06h) command
@@ -189,19 +96,15 @@ static w25q_status_t write_enable_cmd_locked(w25q_t *dev)
  */
 static w25q_status_t write_enable(w25q_t *dev)
 {
-    w25q_status_t st = bus_acquire(dev);
-    if (st != W25Q_OK) { 
-        return st; // spi bus not aquired, return error code
-    }
-    st = write_enable_cmd_locked(dev);
+    w25q_status_t st;
+    st = write_enable_cmd(dev);
     if (st == W25Q_OK) {
         uint8_t sr = 0; // clear status register
-        st = read_sr1_locked(dev, &sr);
+        st = read_sr1(dev, &sr);
         if (st == W25Q_OK && !(sr & W25Q_SR1_WEL)) {
             st = W25Q_ERR_WEL;
         }
     }
-    bus_release(dev);
     return st;
 }
 
@@ -226,22 +129,22 @@ static inline void encode_addr_msb_first(uint8_t out[3], uint32_t addr)
  * @param len - Number of bytes, at most the HAL limit (65535), callers use W25Q_READ_CHUNK or less
  * @return - W25Q_OK if the bytes are read successfully, or W25Q_ERR_HAL otherwise
  */
-static w25q_status_t read_locked(w25q_t *dev, uint32_t addr, uint8_t *buf, size_t len)
+static w25q_status_t read(w25q_t *dev, uint32_t addr, uint8_t *buf, size_t len)
 {
     /* Header for the read command - hdr[0] command, hdr[1-3] address */
     uint8_t hdr[4];
-    w25q_status_t st;
+    HAL_StatusTypeDef st;
 
     hdr[0] = W25Q_CMD_READ_DATA;
     encode_addr_msb_first(&hdr[1], addr);
 
-    cs_low(dev); // CS selected
-    st = tx(dev, hdr, 4); // Send Read Data command and address, command size 4 bytes
-    if (st == W25Q_OK) {
-        st = rx(dev, buf, len); 
+    st = spi_bus_read(SPI_FLASH, &hdr[0], 4, buf, len);
+    if (st == HAL_OK) {
+        return W25Q_OK;
+    } else {
+        return W25Q_ERR_HAL;
     }
-    cs_high(dev); // CS deselected
-    return st;
+
 }
 
 /* Read the JEDEC ID 
@@ -252,23 +155,18 @@ static w25q_status_t read_locked(w25q_t *dev, uint32_t addr, uint8_t *buf, size_
 w25q_status_t w25q_read_jedec_id(w25q_t *dev, uint8_t id[3])
 {
     uint8_t cmd = W25Q_CMD_JEDEC_ID; 
-    w25q_status_t st;
+    HAL_StatusTypeDef st;
     if (!dev || !id) { 
-        return W25Q_ERR_PARAM; 
+        return W25Q_ERR_PARAM;
     }
-    st = bus_acquire(dev); // Acquires the SPI bus, returns W25Q_ERR_LOCK if the mutex is not available in time
-    if (st != W25Q_OK) { 
-        return st; 
-    }
-    cs_low(dev); // CS selected
-    st = tx(dev, &cmd, 1); // Send JEDEC ID command, command size 1 byte
-    if (st == W25Q_OK) { 
-        st = rx(dev, id, 3); // Receive the 3-byte JEDEC ID, returns W25Q_ERR_HAL if the data is not received successfully
-    }
-    cs_high(dev); // CS deselected
 
-    bus_release(dev); // Releases the SPI bus before returning status
-    return st;
+    st = spi_bus_read(SPI_FLASH, &cmd, 1, id, 3);
+    if (st == HAL_OK) {
+        return W25Q_OK;
+    } else {
+        return W25Q_ERR_HAL;
+    }
+    
 }
 
 /* Fills in the device, waits tPUW and checks the ID
@@ -295,7 +193,6 @@ w25q_status_t w25q_init(w25q_t *dev, SPI_HandleTypeDef *hspi, GPIO_TypeDef *cs_p
     dev -> cs_port = cs_port;  
     dev -> cs_pin  = cs_pin; 
 
-    cs_high(dev); /* CS Deselected */
     HAL_Delay(W25Q_T_PUW_MIN_MS);   /* tPUW before the first write instruction, needs minimum of 5ms delay (9.3 - W25Q32JV Datasheet) */
 
     st = w25q_read_jedec_id(dev, id); 
@@ -344,14 +241,9 @@ w25q_status_t w25q_read(w25q_t *dev, uint32_t addr, uint8_t *buf, size_t len)
         /* Cap each SPI transaction to W25Q_READ_CHUNK bytes to avoid going over HAL limit */
         size_t n = (len > W25Q_READ_CHUNK) ? W25Q_READ_CHUNK : len; 
 
-        st = bus_acquire(dev);
-        if (st != W25Q_OK) { 
-            return st; 
-        }
         /* CS low -> send Read Data (03h) + 24-bit address, for size 'n' -> CS high */
-        st = read_locked(dev, addr, buf, n);
+        st = read(dev, addr, buf, n);
         /* Release the bus immediately after reading chunk */
-        bus_release(dev);
         if (st != W25Q_OK) { 
             return st; 
         }
@@ -380,6 +272,7 @@ w25q_status_t w25q_page_program(w25q_t *dev, uint32_t addr, const uint8_t *buf, 
     /* 4-byte command header, hdr[0] page program command (02h), [1-3] 24-bit MSB-first address */
     uint8_t hdr[4];
     w25q_status_t st;
+    HAL_StatusTypeDef spistatus;
 
     /* Check for NULL pointers and valid length */
     if (!dev || !buf || len == 0 || len > W25Q_PAGE_SIZE) { 
@@ -405,24 +298,16 @@ w25q_status_t w25q_page_program(w25q_t *dev, uint32_t addr, const uint8_t *buf, 
         return st; 
     }
 
-    st = bus_acquire(dev);
-    if (st != W25Q_OK) { 
-        return st; 
-    }
-
     hdr[0] = W25Q_CMD_PAGE_PROGRAM;
     encode_addr_msb_first(&hdr[1], addr);
 
-    cs_low(dev); /* CS selected */
-    st = tx(dev, hdr, 4); /* Send Page Program command and address, command size 4 bytes */
-    if (st == W25Q_OK) { 
-        st = tx(dev, buf, len); 
+    spistatus = spi_bus_write(SPI_FLASH, hdr, 4);
+    if (spistatus == HAL_OK) {
+        spistatus = spi_bus_write(SPI_FLASH, buf, len);
     }
-    cs_high(dev);   /* CS deselected */
 
-    bus_release(dev);
-    if (st != W25Q_OK) { 
-        return st; 
+    if (spistatus != HAL_OK) {
+        return W25Q_ERR_HAL;
     }
 
     /* Page Program max time 10 ms */
@@ -440,13 +325,8 @@ w25q_status_t w25q_page_program(w25q_t *dev, uint32_t addr, const uint8_t *buf, 
                 m = W25Q_VERIFY_CHUNK; 
             }
 
-            st = bus_acquire(dev);
-            if (st != W25Q_OK) { 
-                return st; 
-            }
             /* Read back the programmed data in chunks and compare with the original buffer */
-            st = read_locked(dev, addr + (uint32_t)done, chunk, m);
-            bus_release(dev);
+            st = read(dev, addr + (uint32_t)done, chunk, m);
             if (st != W25Q_OK) { 
                 return st; 
             }
@@ -474,6 +354,7 @@ w25q_status_t w25q_sector_erase(w25q_t *dev, uint32_t addr)
     /* 4-byte command header, hdr[0] page program command (20h), [1-3] 24-bit MSB-first address */
     uint8_t hdr[4];
     w25q_status_t st;
+    HAL_StatusTypeDef spistatus;
 
     /* Check for NULL pointer */
     if (!dev) {
@@ -500,21 +381,12 @@ w25q_status_t w25q_sector_erase(w25q_t *dev, uint32_t addr)
         return st; 
     }
 
-    st = bus_acquire(dev);
-    if (st != W25Q_OK) { 
-        return st; 
-    }
-
     hdr[0] = W25Q_CMD_SECTOR_ERASE;
     encode_addr_msb_first(&hdr[1], addr);
 
-    cs_low(dev); /* CS selected */
-    st = tx(dev, hdr, 4); /* Send Sector Erase command and address, command size 4 bytes */
-    cs_high(dev);   /* CS deselected, triggers internal erase */
-
-    bus_release(dev);
-    if (st != W25Q_OK) { 
-        return st; 
+    spistatus = spi_bus_write(SPI_FLASH, hdr, 4);
+    if (spistatus != HAL_OK) {
+        return W25Q_ERR_HAL;
     }
 
     /* Sector Erase max time is 400 ms */
@@ -527,13 +399,8 @@ w25q_status_t w25q_sector_erase(w25q_t *dev, uint32_t addr)
     {
         uint8_t chunk[W25Q_VERIFY_CHUNK];
         for (uint32_t off = 0; off < W25Q_SECTOR_SIZE; off += W25Q_VERIFY_CHUNK) {
-            st = bus_acquire(dev);
-            if (st != W25Q_OK) { 
-                return st; 
-            }
             /* Read W25Q_VERIFY_CHUNK bytes at current sector offset */
-            st = read_locked(dev, addr + off, chunk, W25Q_VERIFY_CHUNK);
-            bus_release(dev);
+            st = read(dev, addr + off, chunk, W25Q_VERIFY_CHUNK);
             if (st != W25Q_OK) { 
                 return st; 
             }
