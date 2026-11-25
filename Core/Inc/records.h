@@ -6,6 +6,8 @@
  * Storage adds session ID/CRC/commit; never writes a native struct to flash. */
 typedef struct { uint8_t bytes[64]; } logger_record;
 _Static_assert(sizeof(logger_record) == 64, "record envelope");
+typedef struct { uint8_t bytes[76]; } flash_record;
+_Static_assert(sizeof(flash_record) == 76, "flash envelope");
 typedef struct {
     uint32_t flags;
     float accel[3], gyro[3], pressure_pa, temperature_c, altitude_m;
