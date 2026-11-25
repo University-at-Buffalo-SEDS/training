@@ -270,7 +270,7 @@ w25q_status_t w25q_read(w25q_t *dev, uint32_t addr, uint8_t *buf, size_t len)
 w25q_status_t w25q_page_program(w25q_t *dev, uint32_t addr, const uint8_t *buf, size_t len)
 {
     /* 4-byte command header, hdr[0] page program command (02h), [1-3] 24-bit MSB-first address */
-    uint8_t hdr[4];
+    uint8_t hdr[len+4];
     w25q_status_t st;
     HAL_StatusTypeDef spistatus;
 
@@ -301,10 +301,9 @@ w25q_status_t w25q_page_program(w25q_t *dev, uint32_t addr, const uint8_t *buf, 
     hdr[0] = W25Q_CMD_PAGE_PROGRAM;
     encode_addr_msb_first(&hdr[1], addr);
 
-    spistatus = spi_bus_write(SPI_FLASH, hdr, 4);
-    if (spistatus == HAL_OK) {
-        spistatus = spi_bus_write(SPI_FLASH, buf, len);
-    }
+    memcpy(&hdr[4], buf, len);
+
+    spistatus = spi_bus_write(SPI_FLASH, hdr, len+4);
 
     if (spistatus != HAL_OK) {
         return W25Q_ERR_HAL;
