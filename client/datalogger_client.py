@@ -106,6 +106,7 @@ class Client:
         return time.monotonic() + self.timeout
 
     def _transaction(self, command, reader):
+        # Each command owns the port until its entire reply has been consumed.
         with self.lock:
             try:
                 return reader(self._send(command))
@@ -215,7 +216,9 @@ class Client:
         return self._transaction(f"LOG_READ {cursor} {count}", read)
 
     def metadata(self, sid: int, generation: int) -> tuple[bytes, dict]:
-        uint(str(sid)); uint(str(generation))
+        uint(str(sid))
+        uint(str(generation))
+
         def read(deadline):
             fields = self._line(deadline).split()
             if len(fields) != 4 or fields[:3] != ["META", str(sid), "256"]:
@@ -242,6 +245,7 @@ class Client:
                 "storage_encoding": encoding, "acquisition_epoch": epoch, "source_origin_us": origin,
                 "processed_values": "regenerated from original sensor counts" if encoding == 2 else "stored",
             }
+            # Protected events extend the common DLH1 header with their window.
             if struct.unpack_from("<I", data, 140)[0] & 1:
                 trigger, target, end = struct.unpack_from("<QQQ", data, 148)
                 reasons = struct.unpack_from("<I", data, 144)[0]
@@ -388,7 +392,8 @@ def export_csv(source: Path, sid: int, trigger_us=None):
             if trigger_us is not None:
                 row["trigger_relative_s"] = (row["timestamp_us"] - trigger_us) / 1000000
             writer.writerow(row)
-        out.flush(); os.fsync(out.fileno())
+        out.flush()
+        os.fsync(out.fileno())
     os.replace(temporary, target)
 
 
@@ -398,9 +403,13 @@ def export_session(client: Client, sid: int, destination: Path, launch: bool = F
     status = client.status()
     if not status.get("uid"):
         raise ProtocolError("STATUS must include a stable device UID before exporting")
+    # A protected capture continues while the host reads another closed file.
     if status.get("state") != "CAPTURING":
         client.command("STOP")
-    session = next((s for s in (client.events() if launch else client.sessions()) if s.id == sid), None)
+    session = next(
+        (s for s in (client.events() if launch else client.sessions()) if s.id == sid),
+        None,
+    )
     if session is None:
         raise ProtocolError(f"Closed session {sid} not found")
     if launch and session.state != "CLOSED":
@@ -411,8 +420,13 @@ def export_session(client: Client, sid: int, destination: Path, launch: bool = F
     partial = stem.with_suffix(".part")
     final = stem.with_suffix(".bin")
     identity = {**asdict(session), "device_uid": status.get("uid")}
-    manifest = {"format": 1, "session": identity, "chunks": [], "complete": False,
-                "created_utc": datetime.now(timezone.utc).isoformat()}
+    manifest = {
+        "format": 1,
+        "session": identity,
+        "chunks": [],
+        "complete": False,
+        "created_utc": datetime.now(timezone.utc).isoformat(),
+    }
     if manifest_path.exists():
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
         if manifest.get("format") != 1 or manifest.get("session") != identity:
@@ -424,6 +438,7 @@ def export_session(client: Client, sid: int, destination: Path, launch: bool = F
         if manifest.get("metadata_hex", header.hex()) != header.hex():
             raise ProtocolError("Session metadata differs from saved export")
         manifest.update(record_format=1, metadata_hex=header.hex(), metadata=metadata)
+    # The manifest records the verified prefix. Recheck it before resuming.
     source = final if final.exists() else partial
     offset = 0
     if source.exists():
@@ -441,7 +456,10 @@ def export_session(client: Client, sid: int, destination: Path, launch: bool = F
                 if offset != session.length or f.read(1):
                     raise ProtocolError("Completed export length mismatch")
                 if manifest.get("record_format") == 1:
-                    export_csv(final, sid, manifest.get("metadata", {}).get("launch", {}).get("trigger_time_in_file_us"))
+                    export_csv(
+                        final, sid,
+                        manifest.get("metadata", {}).get("launch", {}).get("trigger_time_in_file_us"),
+                    )
                 manifest["complete"] = True
                 save_json(manifest_path, manifest)
                 if status.get("unpin") == "1":
@@ -456,15 +474,22 @@ def export_session(client: Client, sid: int, destination: Path, launch: bool = F
         while offset < session.length:
             data = client.read(sid, offset, min(512, session.length - offset))
             f.write(data)
+            # Flush the payload before publishing its offset in the manifest.
             f.flush()
             os.fsync(f.fileno())
-            manifest["chunks"].append({"offset": offset, "length": len(data),
-                                       "crc32": f"{zlib.crc32(data):08x}"})
+            manifest["chunks"].append({
+                "offset": offset,
+                "length": len(data),
+                "crc32": f"{zlib.crc32(data):08x}",
+            })
             offset += len(data)
             save_json(manifest_path, manifest)
     os.replace(partial, final)
     if manifest.get("record_format") == 1:
-        export_csv(final, sid, manifest.get("metadata", {}).get("launch", {}).get("trigger_time_in_file_us"))
+        export_csv(
+            final, sid,
+            manifest.get("metadata", {}).get("launch", {}).get("trigger_time_in_file_us"),
+        )
     manifest["complete"] = True
     save_json(manifest_path, manifest)
     if status.get("unpin") == "1":
@@ -589,7 +614,8 @@ def main():
                     line = json.dumps({"unix_time": time.time(), **client.live()})
                     print(line, flush=True)
                     if output:
-                        output.write(line + "\n"); output.flush()
+                        output.write(line + "\n")
+                        output.flush()
                     if not args.follow:
                         break
                     time.sleep(args.interval)

@@ -5,6 +5,7 @@
 
 TX_QUEUE records_to_data, sensor_to_process;
 TX_EVENT_FLAGS_GROUP acquisition_events;
+/* The data queue covers short stalls during flash journal writes and erases. */
 static ULONG raw_memory[32 * 16], record_memory[256 * 16];
 volatile acquisition_status acquisition_state;
 float acquisition_reference_pa;
@@ -14,15 +15,22 @@ UINT acquisition_init(void)
 {
     _Static_assert(sizeof(ULONG) == 4, "ThreadX queue word size");
     UINT status = spi_bus_init();
-    if (status != TX_SUCCESS) return status;
+    if (status != TX_SUCCESS)
+        return status;
     status = tx_event_flags_create(&acquisition_events, "Acquisition events");
-    if (status != TX_SUCCESS) return status;
-    status = tx_queue_create(&sensor_to_process, "Raw to processing", 16, raw_memory, sizeof(raw_memory));
-    if (status != TX_SUCCESS) return status;
-    status = tx_queue_create(&records_to_data, "Records to data", 16, record_memory, sizeof(record_memory));
-    if (status != TX_SUCCESS) return status;
+    if (status != TX_SUCCESS)
+        return status;
+    status = tx_queue_create(
+        &sensor_to_process, "Raw to processing", 16, raw_memory, sizeof(raw_memory));
+    if (status != TX_SUCCESS)
+        return status;
+    status = tx_queue_create(
+        &records_to_data, "Records to data", 16, record_memory, sizeof(record_memory));
+    if (status != TX_SUCCESS)
+        return status;
     status = create_processing_thread();
-    if (status != TX_SUCCESS) return status;
+    if (status != TX_SUCCESS)
+        return status;
     return create_sensor_thread();
 }
 
@@ -43,15 +51,20 @@ int acquisition_stopped(void)
 
 UINT acquisition_start(uint32_t session, float reference)
 {
-    if (!session || !isfinite(reference) || reference <= 0) return TX_OPTION_ERROR;
-    if (!acquisition_stopped()) return TX_NOT_AVAILABLE;
+    if (!session || !isfinite(reference) || reference <= 0)
+        return TX_OPTION_ERROR;
+    if (!acquisition_stopped())
+        return TX_NOT_AVAILABLE;
     ULONG enqueued;
     UINT status = tx_queue_info_get(&records_to_data, NULL, &enqueued, NULL, NULL, NULL, NULL);
-    if (status != TX_SUCCESS) return status;
-    if (enqueued) return TX_NOT_AVAILABLE;
+    if (status != TX_SUCCESS)
+        return status;
+    if (enqueued)
+        return TX_NOT_AVAILABLE;
     TX_INTERRUPT_SAVE_AREA
     TX_DISABLE
-    if (!acquisition_state.initialized || acquisition_state.devices != 15) {
+    if (!acquisition_state.initialized || acquisition_state.devices != 15)
+    {
         TX_RESTORE
         return TX_NOT_AVAILABLE;
     }
@@ -78,6 +91,8 @@ void acquisition_stop(void)
 
 void acquisition_publish(const logger_record *r, volatile uint32_t *drops)
 {
-    if (tx_queue_send(&records_to_data, (VOID *)r, TX_NO_WAIT) != TX_SUCCESS) ++*drops;
-    else tx_event_flags_set(&acquisition_events, ACQUISITION_RECORD, TX_OR);
+    if (tx_queue_send(&records_to_data, (VOID *)r, TX_NO_WAIT) != TX_SUCCESS)
+        ++*drops;
+    else
+        tx_event_flags_set(&acquisition_events, ACQUISITION_RECORD, TX_OR);
 }

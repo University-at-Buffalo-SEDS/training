@@ -1,12 +1,11 @@
 #include "w25q32jv.h"
 #include "main.h"
-#include "tx_api.h"         
+#include "tx_api.h"
 #include <string.h>
 
 static int device_valid(const w25q_t *dev)
 {
-    return dev && dev->hspi && dev->cs_port && dev->cs_pin &&
-        !(dev->cs_pin & (dev->cs_pin - 1U));
+    return dev && dev->hspi && dev->cs_port && dev->cs_pin && !(dev->cs_pin & (dev->cs_pin - 1U));
 }
 
 /* Acquires the SPI bus
@@ -17,7 +16,8 @@ static int device_valid(const w25q_t *dev)
 static w25q_status_t bus_acquire(w25q_t *dev)
 {
     (void)dev;
-    if (tx_mutex_get(&spi1_mutex, MS_TO_TICKS(W25Q_LOCK_TIMEOUT_MS)) != TX_SUCCESS) {
+    if (tx_mutex_get(&spi1_mutex, MS_TO_TICKS(W25Q_LOCK_TIMEOUT_MS)) != TX_SUCCESS)
+    {
         return W25Q_ERR_LOCK;
     }
     /* Accelerometer PB11, gyroscope PB12, barometer PB13, set pin high */
@@ -25,7 +25,7 @@ static w25q_status_t bus_acquire(w25q_t *dev)
     return W25Q_OK;
 }
 
-/* Releases the SPI bus 
+/* Releases the SPI bus
  * Hold the bus only for one complete wire transaction, never across a busy wait
  * @param dev - pointer to the W25Q32JV device
  */
@@ -40,19 +40,19 @@ static void bus_release(w25q_t *dev)
  */
 static inline void cs_low(w25q_t *dev)
 {
-    HAL_GPIO_WritePin(dev -> cs_port, dev -> cs_pin, GPIO_PIN_RESET);
+    HAL_GPIO_WritePin(dev->cs_port, dev->cs_pin, GPIO_PIN_RESET);
 }
 
-/* Device is deselected when CS is high 
+/* Device is deselected when CS is high
  * The rising edge is what makes the chip execute a program or erase
  * @param dev - pointer to the W25Q32JV device
  */
 static inline void cs_high(w25q_t *dev)
 {
-    HAL_GPIO_WritePin(dev -> cs_port, dev -> cs_pin, GPIO_PIN_SET);
+    HAL_GPIO_WritePin(dev->cs_port, dev->cs_pin, GPIO_PIN_SET);
 }
 
-/* Transmit data over SPI bus 
+/* Transmit data over SPI bus
  * @param dev - pointer to the W25Q32JV device
  * @param buff - Buffer containing data to transmit
  * @param size - Number of bytes to transmit, at most 65535 (HAL limit)
@@ -61,17 +61,19 @@ static inline void cs_high(w25q_t *dev)
 static w25q_status_t tx(w25q_t *dev, const uint8_t *buff, size_t size)
 {
     /* Check if it is over HAL limit */
-    if (size > 0xFFFFU) {
+    if (size > 0xFFFFU)
+    {
         return W25Q_ERR_PARAM;
     }
     /* Send data over SPI bus in polling mode */
-    if (HAL_SPI_Transmit(dev -> hspi, (uint8_t *)buff, (uint16_t)size, W25Q_SPI_TIMEOUT_MS) != HAL_OK) {
+    if (HAL_SPI_Transmit(dev->hspi, (uint8_t *)buff, (uint16_t)size, W25Q_SPI_TIMEOUT_MS) != HAL_OK)
+    {
         return W25Q_ERR_HAL;
     }
     return W25Q_OK;
 }
 
-/* Receive data over SPI bus 
+/* Receive data over SPI bus
  * In full-duplex master mode HAL clocks out the old contents of buff, which the flash ignores during a read
  * @param dev - pointer to the W25Q32JV device
  * @param buff - Buffer containing data to receive
@@ -81,17 +83,19 @@ static w25q_status_t tx(w25q_t *dev, const uint8_t *buff, size_t size)
 static w25q_status_t rx(w25q_t *dev, uint8_t *buff, size_t size)
 {
     // Check if it is over HAL limit
-    if (size > 0xFFFFU) {
+    if (size > 0xFFFFU)
+    {
         return W25Q_ERR_PARAM;
     }
     /* Receive data over SPI bus in polling mode */
-    if (HAL_SPI_Receive(dev -> hspi, buff, (uint16_t)size, W25Q_SPI_TIMEOUT_MS) != HAL_OK) {
+    if (HAL_SPI_Receive(dev->hspi, buff, (uint16_t)size, W25Q_SPI_TIMEOUT_MS) != HAL_OK)
+    {
         return W25Q_ERR_HAL;
     }
     return W25Q_OK;
 }
 
-/* Read the first status register while the caller already holds the bus 
+/* Read the first status register while the caller already holds the bus
  * Allowed at any time, even while the chip is busy (8.2 Read Status Register 1, W25Q32JV Datasheet)
  * @param dev - pointer to the W25Q32JV device
  * @param sr - Buffer to store the status register value
@@ -103,14 +107,15 @@ static w25q_status_t read_sr1_locked(w25q_t *dev, uint8_t *sr)
     w25q_status_t status;
     cs_low(dev);
     status = tx(dev, &cmd, 1);
-    if (status == W25Q_OK) {
+    if (status == W25Q_OK)
+    {
         status = rx(dev, sr, 1);
     }
     cs_high(dev);
     return status;
 }
 
-/* Read the first status register 
+/* Read the first status register
  * @param dev - pointer to the W25Q32JV device
  * @param sr - Buffer to store the status register value
  * @return - W25Q_OK if the status is read successfully, W25Q_ERR_LOCK if the bus is not available, or W25Q_ERR_HAL otherwise
@@ -118,8 +123,9 @@ static w25q_status_t read_sr1_locked(w25q_t *dev, uint8_t *sr)
 static w25q_status_t read_sr1(w25q_t *dev, uint8_t *sr)
 {
     w25q_status_t st = bus_acquire(dev);
-    if (st != W25Q_OK) { 
-        return st; 
+    if (st != W25Q_OK)
+    {
+        return st;
     }
     st = read_sr1_locked(dev, sr);
     bus_release(dev);
@@ -139,15 +145,19 @@ static w25q_status_t wait_not_busy(w25q_t *dev, uint32_t timeout_ms)
     w25q_status_t st;
     uint32_t t0 = HAL_GetTick();
     /* While runtime is less than timeout, read status register 1, check if status is OK */
-    for (;;) {
+    for (;;)
+    {
         st = read_sr1(dev, &sr);
-        if (st != W25Q_OK) {
+        if (st != W25Q_OK)
+        {
             return st;
         }
-        if (!(sr & W25Q_SR1_BUSY)) {
+        if (!(sr & W25Q_SR1_BUSY))
+        {
             return W25Q_OK;
         }
-        if ((HAL_GetTick() - t0) >= timeout_ms) return W25Q_ERR_TIMEOUT;
+        if ((HAL_GetTick() - t0) >= timeout_ms)
+            return W25Q_ERR_TIMEOUT;
         /* Sleep lets lower-priority USB run. Check status again on waking,
          * before timeout, to tolerate scheduler granularity at the deadline. */
         tx_thread_sleep(1);
@@ -160,13 +170,15 @@ static w25q_status_t wait_not_busy(w25q_t *dev, uint32_t timeout_ms)
  */
 static inline int w25q_range_ok(uint32_t addr, size_t len)
 {
-    if (addr > W25Q_CAPACITY_BYTES) {
-        return 0; // false 
+    if (addr > W25Q_CAPACITY_BYTES)
+    {
+        return 0; // false
     }
-    if (len > (size_t)(W25Q_CAPACITY_BYTES - addr)) {
-        return 0; // false 
+    if (len > (size_t)(W25Q_CAPACITY_BYTES - addr))
+    {
+        return 0; // false
     }
-    return 1; // true 
+    return 1; // true
 }
 
 /* Sends the Write Enable (06h) instruction to set the WEL bit
@@ -181,15 +193,15 @@ static w25q_status_t write_enable_cmd_locked(w25q_t *dev)
 {
     uint8_t cmd = W25Q_CMD_WRITE_ENABLE;
     w25q_status_t st;
-    cs_low(dev); // CS selected 
+    cs_low(dev);           // CS selected
     st = tx(dev, &cmd, 1); // Send Write Enable command, command size 1 byte
-    cs_high(dev); // CS deselected
+    cs_high(dev);          // CS deselected
     return st;
 }
 
 /* Acquires the SPI bus, issues the Write Enable (06h) command
  * Reads Status Register 1 (SR1) to confirm that the WEL bit was successfully latched
- * Releases the bus before returning status 
+ * Releases the bus before returning status
  * WEL clears itself after every program or erase, so this is needed before each one (8.2 Write Enable - W25Q32JV Datasheet)
  * @param dev - pointer to the W25Q32JV device
  * @return - W25Q_OK if the command is sent successfully and WEL is set, W25Q_ERR_WEL if WEL is not set, or another error code otherwise
@@ -197,14 +209,17 @@ static w25q_status_t write_enable_cmd_locked(w25q_t *dev)
 static w25q_status_t write_enable(w25q_t *dev)
 {
     w25q_status_t st = bus_acquire(dev);
-    if (st != W25Q_OK) { 
+    if (st != W25Q_OK)
+    {
         return st; // spi bus not aquired, return error code
     }
     st = write_enable_cmd_locked(dev);
-    if (st == W25Q_OK) {
+    if (st == W25Q_OK)
+    {
         uint8_t sr = 0; // clear status register
         st = read_sr1_locked(dev, &sr);
-        if (st == W25Q_OK && !(sr & W25Q_SR1_WEL)) {
+        if (st == W25Q_OK && !(sr & W25Q_SR1_WEL))
+        {
             st = W25Q_ERR_WEL;
         }
     }
@@ -217,7 +232,7 @@ static w25q_status_t write_enable(w25q_t *dev)
  * No range check here, only the low 24 bits are kept, so check with w25q_range_ok first
  * @param out - Output buffer of at least 3 bytes
  * @param addr - Address to encode
-  */
+ */
 static inline void encode_addr_msb_first(uint8_t out[3], uint32_t addr)
 {
     out[0] = (uint8_t)(addr >> 16);
@@ -225,7 +240,7 @@ static inline void encode_addr_msb_first(uint8_t out[3], uint32_t addr)
     out[2] = (uint8_t)(addr);
 }
 
-/* Read into buf while the caller already holds the bus 
+/* Read into buf while the caller already holds the bus
  * One (03h) transaction, no dummy byte for this command (8.2 Read Data - W25Q32JV Datasheet)
  * @param dev - pointer to the W25Q32JV device
  * @param addr - First byte address
@@ -242,35 +257,43 @@ static w25q_status_t read_locked(w25q_t *dev, uint32_t addr, uint8_t *buf, size_
     hdr[0] = W25Q_CMD_READ_DATA;
     encode_addr_msb_first(&hdr[1], addr);
 
-    cs_low(dev); // CS selected
+    cs_low(dev);          // CS selected
     st = tx(dev, hdr, 4); // Send Read Data command and address, command size 4 bytes
-    if (st == W25Q_OK) {
-        st = rx(dev, buf, len); 
+    if (st == W25Q_OK)
+    {
+        st = rx(dev, buf, len);
     }
     cs_high(dev); // CS deselected
     return st;
 }
 
-/* Read the JEDEC ID 
-* @param dev - pointer to the W25Q32JV device
-* @param id - Buffer to store the 3-byte JEDEC ID
-* @return - W25Q_OK if the ID is read successfully, or W25Q_ERR_PARAM otherwise
-*/
+/* Read the JEDEC ID
+ * @param dev - pointer to the W25Q32JV device
+ * @param id - Buffer to store the 3-byte JEDEC ID
+ * @return - W25Q_OK if the ID is read successfully, or W25Q_ERR_PARAM otherwise
+ */
 w25q_status_t w25q_read_jedec_id(w25q_t *dev, uint8_t id[3])
 {
-    uint8_t cmd = W25Q_CMD_JEDEC_ID; 
+    uint8_t cmd = W25Q_CMD_JEDEC_ID;
     w25q_status_t st;
-    if (!device_valid(dev) || !id) {
-        return W25Q_ERR_PARAM; 
+    if (!device_valid(dev) || !id)
+    {
+        return W25Q_ERR_PARAM;
     }
-    st = bus_acquire(dev); // Acquires the SPI bus, returns W25Q_ERR_LOCK if the mutex is not available in time
-    if (st != W25Q_OK) { 
-        return st; 
+    st = bus_acquire(
+        dev); // Acquires the SPI bus, returns W25Q_ERR_LOCK if the mutex is not available in time
+    if (st != W25Q_OK)
+    {
+        return st;
     }
-    cs_low(dev); // CS selected
+    cs_low(dev);           // CS selected
     st = tx(dev, &cmd, 1); // Send JEDEC ID command, command size 1 byte
-    if (st == W25Q_OK) { 
-        st = rx(dev, id, 3); // Receive the 3-byte JEDEC ID, returns W25Q_ERR_HAL if the data is not received successfully
+    if (st == W25Q_OK)
+    {
+        st = rx(
+            dev,
+            id,
+            3); // Receive the 3-byte JEDEC ID, returns W25Q_ERR_HAL if the data is not received successfully
     }
     cs_high(dev); // CS deselected
 
@@ -288,14 +311,16 @@ w25q_status_t w25q_read_jedec_id(w25q_t *dev, uint8_t id[3])
  * @param cs_pin - GPIO pin of the flash chip select
  * @return - W25Q_OK if the ID is EF 40 16, W25Q_ERR_PARAM for a null pointer, W25Q_ERR_ID if the ID differs, or another error code otherwise
  */
-w25q_status_t w25q_init(w25q_t *dev, SPI_HandleTypeDef *hspi, GPIO_TypeDef *cs_port, uint16_t cs_pin)
+w25q_status_t
+w25q_init(w25q_t *dev, SPI_HandleTypeDef *hspi, GPIO_TypeDef *cs_port, uint16_t cs_pin)
 {
     uint8_t id[3]; /* Buffer for JEDEC ID */
     w25q_status_t st;
 
     /* Guard against NULL pointers */
-    if (!dev || !hspi || !cs_port || !cs_pin || (cs_pin & (cs_pin - 1U))) {
-        return W25Q_ERR_PARAM; 
+    if (!dev || !hspi || !cs_port || !cs_pin || (cs_pin & (cs_pin - 1U)))
+    {
+        return W25Q_ERR_PARAM;
     }
 
     *dev = (w25q_t){.hspi = hspi, .cs_port = cs_port, .cs_pin = cs_pin};
@@ -303,30 +328,35 @@ w25q_status_t w25q_init(w25q_t *dev, SPI_HandleTypeDef *hspi, GPIO_TypeDef *cs_p
     cs_high(dev); /* CS Deselected */
     tx_thread_sleep(MS_TO_TICKS(W25Q_T_PUW_MIN_MS));
     st = bus_acquire(dev);
-    if (st != W25Q_OK) return st;
+    if (st != W25Q_OK)
+        return st;
     uint8_t wake = W25Q_CMD_RELEASE_PD;
     cs_low(dev);
     st = tx(dev, &wake, 1);
     cs_high(dev);
     bus_release(dev);
-    if (st != W25Q_OK) return st;
+    if (st != W25Q_OK)
+        return st;
     tx_thread_sleep(1); /* Exceeds the 3 us release-from-power-down delay. */
     st = wait_not_busy(dev, W25Q_T_SE_MAX_MS);
-    if (st != W25Q_OK) return st;
+    if (st != W25Q_OK)
+        return st;
 
-    st = w25q_read_jedec_id(dev, id); 
-    if (st != W25Q_OK) { 
-        return st; 
+    st = w25q_read_jedec_id(dev, id);
+    if (st != W25Q_OK)
+    {
+        return st;
     }
 
-    dev -> jedec_id[0] = id[0]; /* Manufacturer ID */
-    dev -> jedec_id[1] = id[1]; /* Memory Type */
-    dev -> jedec_id[2] = id[2]; /* Capacity */
+    dev->jedec_id[0] = id[0]; /* Manufacturer ID */
+    dev->jedec_id[1] = id[1]; /* Memory Type */
+    dev->jedec_id[2] = id[2]; /* Capacity */
 
     // Pack the 3-byte JEDEC ID into a 24-bit integer and compare with the expected value
     uint32_t v = ((uint32_t)id[0] << 16) | ((uint32_t)id[1] << 8) | id[2];
-    if (v != W25Q32JV_JEDEC_ID) { 
-        return W25Q_ERR_ID; 
+    if (v != W25Q32JV_JEDEC_ID)
+    {
+        return W25Q_ERR_ID;
     }
 
     dev->initialized = 1;
@@ -346,45 +376,52 @@ w25q_status_t w25q_read(w25q_t *dev, uint32_t addr, uint8_t *buf, size_t len)
 {
     w25q_status_t st;
     /* Validate pointers and verify (addr, addr + len) stays within the 4 MB chip boundary */
-    if (!device_valid(dev) || !buf || !w25q_range_ok(addr, len)) {
-        return W25Q_ERR_PARAM; 
+    if (!device_valid(dev) || !buf || !w25q_range_ok(addr, len))
+    {
+        return W25Q_ERR_PARAM;
     }
 
-    if (!dev->initialized) return W25Q_ERR_ID;
-    if (!len) return W25Q_OK;
+    if (!dev->initialized)
+        return W25Q_ERR_ID;
+    if (!len)
+        return W25Q_OK;
     /* Poll Status Register until any prior erase/program finishes. */
-    st = wait_not_busy(dev, W25Q_T_SE_MAX_MS); //  
-    if (st != W25Q_OK) { 
-        return st; 
+    st = wait_not_busy(dev, W25Q_T_SE_MAX_MS); //
+    if (st != W25Q_OK)
+    {
+        return st;
     }
 
     /* Loop until all requested bytes have been read */
-    while (len != 0U) {
+    while (len != 0U)
+    {
         /* Cap each SPI transaction to W25Q_READ_CHUNK bytes to avoid going over HAL limit */
-        size_t n = (len > W25Q_READ_CHUNK) ? W25Q_READ_CHUNK : len; 
+        size_t n = (len > W25Q_READ_CHUNK) ? W25Q_READ_CHUNK : len;
 
         st = bus_acquire(dev);
-        if (st != W25Q_OK) { 
-            return st; 
+        if (st != W25Q_OK)
+        {
+            return st;
         }
         /* CS low -> send Read Data (03h) + 24-bit address, for size 'n' -> CS high */
         st = read_locked(dev, addr, buf, n);
         /* Release the bus immediately after reading chunk */
         bus_release(dev);
-        if (st != W25Q_OK) { 
-            return st; 
+        if (st != W25Q_OK)
+        {
+            return st;
         }
         /* Advance flash address, buffer pointer, and remaining byte count */
         addr += (uint32_t)n;
-        buf  += n;
-        len  -= n;
+        buf += n;
+        len -= n;
     }
     return W25Q_OK;
 }
 
 /* Programs up to one page, then verifies it
- * Order - Validates alignment and bounds, waits for the chip to become idle, enables writing (06h + WEL check), 
- * transmits the Page Program instruction (02h) with a 24-bit address and payload, waits for the internal program cycle (tPP) to complete, 
+ * Order - Validates alignment and bounds, waits for the chip to become idle, enables writing (06h + WEL check),
+ * transmits the Page Program instruction (02h) with a 24-bit address and payload, waits for the internal program cycle (tPP) to complete,
  * and performs a chunked readback verification
  * Note - Target flash bytes must already be in the erased state (0xFF)
  * NOR flash programming can only clear bits from 1 to 0, never set 0 to 1. (8.2 Page Program - W25Q32JV Datasheet)
@@ -401,78 +438,93 @@ w25q_status_t w25q_page_program(w25q_t *dev, uint32_t addr, const uint8_t *buf, 
     w25q_status_t st;
 
     /* Check for NULL pointers and valid length */
-    if (!device_valid(dev) || !buf || len == 0 || len > W25Q_PAGE_SIZE) {
-        return W25Q_ERR_PARAM; 
+    if (!device_valid(dev) || !buf || len == 0 || len > W25Q_PAGE_SIZE)
+    {
+        return W25Q_ERR_PARAM;
     }
-    if (!dev->initialized) return W25Q_ERR_ID;
+    if (!dev->initialized)
+        return W25Q_ERR_ID;
     /* Check if the address and length are within the valid range */
-    if (!w25q_range_ok(addr, len)) { 
-        return W25Q_ERR_PARAM; 
+    if (!w25q_range_ok(addr, len))
+    {
+        return W25Q_ERR_PARAM;
     }
     /* Check if the page boundary is crossed */
-    if (((addr & (W25Q_PAGE_SIZE - 1U)) + len) > W25Q_PAGE_SIZE) {
-        return W25Q_ERR_PARAM;   /* the chip would wrap inside the page and overwrite earlier bytes */
+    if (((addr & (W25Q_PAGE_SIZE - 1U)) + len) > W25Q_PAGE_SIZE)
+    {
+        return W25Q_ERR_PARAM; /* the chip would wrap inside the page and overwrite earlier bytes */
     }
 
     /* Page Program max time 10 ms */
-    st = wait_not_busy(dev, W25Q_T_PP_MAX_MS); 
-    if (st != W25Q_OK) { 
-        return st; 
+    st = wait_not_busy(dev, W25Q_T_PP_MAX_MS);
+    if (st != W25Q_OK)
+    {
+        return st;
     }
-    
+
     st = write_enable(dev);
-    if (st != W25Q_OK) { 
-        return st; 
+    if (st != W25Q_OK)
+    {
+        return st;
     }
 
     st = bus_acquire(dev);
-    if (st != W25Q_OK) { 
-        return st; 
+    if (st != W25Q_OK)
+    {
+        return st;
     }
 
     hdr[0] = W25Q_CMD_PAGE_PROGRAM;
     encode_addr_msb_first(&hdr[1], addr);
 
-    cs_low(dev); /* CS selected */
+    cs_low(dev);          /* CS selected */
     st = tx(dev, hdr, 4); /* Send Page Program command and address, command size 4 bytes */
-    if (st == W25Q_OK) { 
-        st = tx(dev, buf, len); 
+    if (st == W25Q_OK)
+    {
+        st = tx(dev, buf, len);
     }
-    cs_high(dev);   /* CS deselected */
+    cs_high(dev); /* CS deselected */
 
     bus_release(dev);
-    if (st != W25Q_OK) { 
-        return st; 
+    if (st != W25Q_OK)
+    {
+        return st;
     }
 
     /* Page Program max time 10 ms */
     st = wait_not_busy(dev, W25Q_T_PP_MAX_MS);
-    if (st != W25Q_OK) { 
-        return st; 
+    if (st != W25Q_OK)
+    {
+        return st;
     }
 
     /* Verify - check if bits changed, just because cycle ended dosen't mean it was successful */
     {
         uint8_t chunk[W25Q_VERIFY_CHUNK];
-        for (size_t done = 0; done < len; ) {
+        for (size_t done = 0; done < len;)
+        {
             size_t m = len - done;
-            if (m > W25Q_VERIFY_CHUNK) { 
-                m = W25Q_VERIFY_CHUNK; 
+            if (m > W25Q_VERIFY_CHUNK)
+            {
+                m = W25Q_VERIFY_CHUNK;
             }
 
             st = bus_acquire(dev);
-            if (st != W25Q_OK) { 
-                return st; 
+            if (st != W25Q_OK)
+            {
+                return st;
             }
             /* Read back the programmed data in chunks and compare with the original buffer */
             st = read_locked(dev, addr + (uint32_t)done, chunk, m);
             bus_release(dev);
-            if (st != W25Q_OK) { 
-                return st; 
+            if (st != W25Q_OK)
+            {
+                return st;
             }
             /* compare the readback with the original buffer */
-            if (memcmp(chunk, &buf[done], m) != 0) {
-                return W25Q_ERR_VERIFY;   /* protected area, or the target was not erased */
+            if (memcmp(chunk, &buf[done], m) != 0)
+            {
+                return W25Q_ERR_VERIFY; /* protected area, or the target was not erased */
             }
             /* advance offset */
             done += m;
@@ -496,72 +548,86 @@ w25q_status_t w25q_sector_erase(w25q_t *dev, uint32_t addr)
     w25q_status_t st;
 
     /* Check for NULL pointer */
-    if (!device_valid(dev)) {
-        return W25Q_ERR_PARAM; 
+    if (!device_valid(dev))
+    {
+        return W25Q_ERR_PARAM;
     }
-    if (!dev->initialized) return W25Q_ERR_ID;
+    if (!dev->initialized)
+        return W25Q_ERR_ID;
     /* Check if the address is within the valid range (0x000000 to 0x3FFFFF) */
-    if (!w25q_range_ok(addr, 1)) { 
-        return W25Q_ERR_PARAM; 
+    if (!w25q_range_ok(addr, 1))
+    {
+        return W25Q_ERR_PARAM;
     }
 
     /* Enforce 4 KB (0x1000) sector alignment, lower 12 address bits must be zero */
-    if (addr & (W25Q_SECTOR_SIZE - 1U)) { 
-        return W25Q_ERR_PARAM; 
+    if (addr & (W25Q_SECTOR_SIZE - 1U))
+    {
+        return W25Q_ERR_PARAM;
     }
 
     /* Sector Erase max time is 400 ms */
-    st = wait_not_busy(dev, W25Q_T_SE_MAX_MS); 
-    if (st != W25Q_OK) { 
-        return st; 
+    st = wait_not_busy(dev, W25Q_T_SE_MAX_MS);
+    if (st != W25Q_OK)
+    {
+        return st;
     }
 
     st = write_enable(dev);
-    if (st != W25Q_OK) { 
-        return st; 
+    if (st != W25Q_OK)
+    {
+        return st;
     }
 
     st = bus_acquire(dev);
-    if (st != W25Q_OK) { 
-        return st; 
+    if (st != W25Q_OK)
+    {
+        return st;
     }
 
     hdr[0] = W25Q_CMD_SECTOR_ERASE;
     encode_addr_msb_first(&hdr[1], addr);
 
-    cs_low(dev); /* CS selected */
+    cs_low(dev);          /* CS selected */
     st = tx(dev, hdr, 4); /* Send Sector Erase command and address, command size 4 bytes */
-    cs_high(dev);   /* CS deselected, triggers internal erase */
+    cs_high(dev);         /* CS deselected, triggers internal erase */
 
     bus_release(dev);
-    if (st != W25Q_OK) { 
-        return st; 
+    if (st != W25Q_OK)
+    {
+        return st;
     }
 
     /* Sector Erase max time is 400 ms */
     st = wait_not_busy(dev, W25Q_T_SE_MAX_MS);
-    if (st != W25Q_OK) { 
-        return st; 
+    if (st != W25Q_OK)
+    {
+        return st;
     }
 
     /* Check if blank, every byte must read 0xFF */
     {
         uint8_t chunk[W25Q_VERIFY_CHUNK];
-        for (uint32_t off = 0; off < W25Q_SECTOR_SIZE; off += W25Q_VERIFY_CHUNK) {
+        for (uint32_t off = 0; off < W25Q_SECTOR_SIZE; off += W25Q_VERIFY_CHUNK)
+        {
             st = bus_acquire(dev);
-            if (st != W25Q_OK) { 
-                return st; 
+            if (st != W25Q_OK)
+            {
+                return st;
             }
             /* Read W25Q_VERIFY_CHUNK bytes at current sector offset */
             st = read_locked(dev, addr + off, chunk, W25Q_VERIFY_CHUNK);
             bus_release(dev);
-            if (st != W25Q_OK) { 
-                return st; 
+            if (st != W25Q_OK)
+            {
+                return st;
             }
             /* Scan every byte in the chunk, any non-0xFF byte indicates failure */
-            for (uint32_t k = 0; k < W25Q_VERIFY_CHUNK; k++) {
-                if (chunk[k] != 0xFFU) { 
-                    return W25Q_ERR_VERIFY; 
+            for (uint32_t k = 0; k < W25Q_VERIFY_CHUNK; k++)
+            {
+                if (chunk[k] != 0xFFU)
+                {
+                    return W25Q_ERR_VERIFY;
                 }
             }
         }

@@ -136,18 +136,21 @@ class StoredClientTests(unittest.TestCase):
         good = record(1, 3)
         self.assertEqual(decode_record(good, 7)["sequence"], 3)
         for offset in (0, 4, 5, 6, 8, 30, 72, 76):
-            bad = bytearray(good); bad[offset] ^= 1
+            bad = bytearray(good)
+            bad[offset] ^= 1
             with self.assertRaises(ProtocolError):
                 decode_record(bad, 7)
         for offset in (56, 27):
-            bad = bytearray(good); bad[offset] = 128
+            bad = bytearray(good)
+            bad[offset] = 128
             struct.pack_into("<I", bad, 72, zlib.crc32(bad[:72]))
             with self.assertRaises(ProtocolError):
                 decode_record(bad, 7)
 
     def test_metadata_rejects_crc_identity_and_commit(self):
         for offset in (0, 4, 8, 12, 248, 252):
-            bad = bytearray(metadata()); bad[offset] ^= 1
+            bad = bytearray(metadata())
+            bad[offset] ^= 1
             frame = f"META 7 256 {zlib.crc32(bad):08X}\n".encode() + bad + b"\n"
             client = Client(Serial(lambda _: frame))
             with self.assertRaises(ProtocolError):

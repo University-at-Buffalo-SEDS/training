@@ -15,6 +15,7 @@ class App:
         self.root = root
         root.title("UBSEDS CrashNBurn Datalogger")
         root.geometry("1000x720")
+        # Tk owns the widgets. Queue requests and results across the serial thread.
         self.actions, self.events = queue.Queue(), queue.Queue()
         self.shutdown = threading.Event()
         self.port = tk.StringVar()
@@ -29,7 +30,11 @@ class App:
         self.ports.pack(side="left")
         ttk.Button(top, text="Refresh ports", command=self.refresh).pack(side="left")
         ttk.Button(top, text="Connect", command=self.connect).pack(side="left")
-        ttk.Button(top, text="Disconnect", command=lambda: self.actions.put(("disconnect", None))).pack(side="left")
+        ttk.Button(
+            top,
+            text="Disconnect",
+            command=lambda: self.actions.put(("disconnect", None)),
+        ).pack(side="left")
         ttk.Label(root, textvariable=self.state, padding=10).pack(anchor="w")
         ttk.Label(root, textvariable=self.device_state, padding=(10, 0), wraplength=960, justify="left").pack(anchor="w")
         controls = ttk.Frame(root, padding=10)
@@ -53,16 +58,31 @@ class App:
         self.file_tabs.add(ordinary, text="Rolling history")
         self.file_tabs.add(launches, text="Protected launch / drop files")
         self.file_tabs.pack(fill="x", padx=10)
-        self.sessions = ttk.Treeview(ordinary, columns=("id", "generation", "length", "incomplete"), show="headings", height=6)
+        self.sessions = ttk.Treeview(
+            ordinary,
+            columns=("id", "generation", "length", "incomplete"),
+            show="headings",
+            height=6,
+        )
         for column in self.sessions["columns"]:
             self.sessions.heading(column, text=column.capitalize())
         self.sessions.pack(fill="x")
-        self.launches = ttk.Treeview(launches, columns=("id", "generation", "length", "reasons", "pre", "post", "state", "protected"),
-                                     show="headings", height=6)
-        for column, label, width in (("id", "ID", 55), ("generation", "Generation", 75),
-                                    ("length", "Export bytes", 100), ("reasons", "Trigger", 180),
-                                    ("pre", "Before", 75), ("post", "After / 300 s", 100),
-                                    ("state", "Capture", 100), ("protected", "Protected", 75)):
+        self.launches = ttk.Treeview(
+            launches,
+            columns=("id", "generation", "length", "reasons", "pre", "post", "state", "protected"),
+            show="headings",
+            height=6,
+        )
+        for column, label, width in (
+            ("id", "ID", 55),
+            ("generation", "Generation", 75),
+            ("length", "Export bytes", 100),
+            ("reasons", "Trigger", 180),
+            ("pre", "Before", 75),
+            ("post", "After / 300 s", 100),
+            ("state", "Capture", 100),
+            ("protected", "Protected", 75),
+        ):
             self.launches.heading(column, text=label)
             self.launches.column(column, width=width)
         self.launches.pack(fill="x")
@@ -121,6 +141,7 @@ class App:
         self.console.see("end")
         self.console.configure(state="disabled")
 
+    # Run on the Tk thread to apply worker results and show confirmation dialogs.
     def pump(self):
         while True:
             try:
@@ -153,10 +174,30 @@ class App:
                 for item in self.launches.get_children():
                     self.launches.delete(item)
                 for entry in value:
-                    reasons = "+".join(name for bit, name in ((1, "Spike"), (2, "Free-fall"), (4, "Altitude")) if entry.reasons & bit)
-                    state = "Capturing" if entry.state == "CAPTURING" else "Incomplete" if entry.incomplete else "Complete"
-                    item = self.launches.insert("", "end", values=(entry.id, entry.generation, entry.length, reasons,
-                        f"{entry.pre_ms / 1000:.2f} s", f"{entry.post_ms / 1000:.2f} s", state, "Yes"))
+                    reasons = "+".join(
+                        name
+                        for bit, name in ((1, "Spike"), (2, "Free-fall"), (4, "Altitude"))
+                        if entry.reasons & bit
+                    )
+                    state = (
+                        "Capturing" if entry.state == "CAPTURING"
+                        else "Incomplete" if entry.incomplete
+                        else "Complete"
+                    )
+                    item = self.launches.insert(
+                        "",
+                        "end",
+                        values=(
+                            entry.id,
+                            entry.generation,
+                            entry.length,
+                            reasons,
+                            f"{entry.pre_ms / 1000:.2f} s",
+                            f"{entry.post_ms / 1000:.2f} s",
+                            state,
+                            "Yes",
+                        ),
+                    )
                     if str(entry.id) == str(old_id):
                         self.launches.selection_set(item)
             elif kind == "confirm_delete":
@@ -182,6 +223,7 @@ class App:
         if not self.shutdown.is_set():
             self.root.after(50, self.pump)
 
+    # Own the serial connection here so commands and polling cannot interleave.
     def worker(self):
         client, raw, meta, live_file = None, None, None, None
         cursor = 0
@@ -263,7 +305,8 @@ class App:
                             fields = client.command(f"ERASE_CONFIRM {sid} {generation} {token}").split()
                             if len(fields) != 3 or fields[:2] != ["OK", "ERASE_CONFIRM"]:
                                 raise RuntimeError("Unexpected erase confirmation response")
-                            operation = int(fields[2]); last_operation = 0
+                            operation = int(fields[2])
+                            last_operation = 0
                             self.events.put(("text", f"Deleting session {sid}…\n"))
                         else:
                             self.events.put(("text", client.command(action) + "\n"))
@@ -295,7 +338,8 @@ class App:
                                                    "file_offset": raw.tell(), "length": len(data),
                                                    "overwritten": lost, "gap": (start - cursor) & U32_MAX}) + "\n")
                             raw.write(data)
-                            raw.flush(); meta.flush()
+                            raw.flush()
+                            meta.flush()
                             self.events.put(("text", data.decode("utf-8", errors="replace")))
                         cursor = (start + len(data)) & U32_MAX
                         last_poll = time.monotonic() if cursor == end else 0

@@ -43,7 +43,8 @@ class StorageTests(unittest.TestCase):
             subprocess.run([
                 "cc", "-std=c11", "-Wall", "-Wextra", "-Werror",
                 "-fsanitize=address,undefined", "-g", "-Itests/sensor_stubs", "-ICore/Inc", "-Itests",
-                "tests/test_storage_service.c", "Core/Src/storage.c", "Core/Src/compact_record.c", "Core/Src/storage_service.c", "Core/Src/launch_detector.c",
+                "tests/test_storage_service.c", "Core/Src/storage.c", "Core/Src/compact_record.c",
+                "Core/Src/storage_service.c", "Core/Src/launch_detector.c",
                 "Core/Src/records.c", "Core/Src/usb_protocol.c", "Core/Src/usb_service.c",
                 "-lm", "-o", str(executable),
             ], cwd=ROOT, check=True)
