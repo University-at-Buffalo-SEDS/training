@@ -1,94 +1,73 @@
 #include "main.h"
 #include "T-Threads.h"
-#include "stm32g4xx_hal_def.h"
-#include "stm32g4xx_hal_spi.h"
-#include "tx_api.h"
+#include "storage_service.h"
 #include "w25q32jv.h"
 #include <stdio.h>
 
 TX_THREAD flash_thread;
-#define FLASH_THREAD_STACK_SIZE         4096U   /* Table SDD 4.0*/
+#define FLASH_THREAD_STACK_SIZE 4096U
 _Alignas(8) static ULONG flash_stack[FLASH_THREAD_STACK_SIZE / sizeof(ULONG)];
-#define FLASH_THREAD_PRIORITY           15U     /* Table SDD 4.0*/ 
-#define FLASH_THREAD_PREEMPT_THRESHOLD  15U     /* Assumption based on SDD 4.0*/
-#define DATA_STEPS_PER_PASS             8U      /* "Data services up to eight record steps" SDD 4.2*/
-#define FLASH_SPI_TIMEOUT               100U    /* Uncertain, should verify later */
+static w25q_t flash;
+volatile w25q_status_t diagnostic_flash_init_status;
+volatile int diagnostic_storage_mount_status;
 
-/* flash instructions have at most 8 bytes of input, 8.1.2 & 8.1.3 of flash datasheet */
-#define FLASH_ARG_LIMIT 8
+static int read_flash(void *context, uint32_t address, uint8_t *out, size_t count)
+{ return w25q_read(context, address, out, count) != W25Q_OK; }
+static int program_flash(void *context, uint32_t address, const uint8_t *data, size_t count)
+{ return w25q_page_program(context, address, data, count) != W25Q_OK; }
+static int erase_flash(void *context, uint32_t address)
+{ return w25q_sector_erase(context, address) != W25Q_OK; }
+static void yield_flash(void *context)
+{ TX_PARAMETER_NOT_USED(context); tx_thread_sleep(1); }
 
-extern TX_MUTEX spi1_mutex;
-extern SPI_HandleTypeDef hspi1;
-// static w25q_t flash;  /* W25Q32JV device */   
-// static w25q_status_t flash_status; /* W25Q32JV status */
-
-HAL_StatusTypeDef flash_send_command(SPI_HandleTypeDef *hspi, uint8_t command,
-                                     const uint8_t *args, size_t argc,
-                                     uint8_t *out, size_t outlen) {
-
-    if (argc > FLASH_ARG_LIMIT || outlen > FLASH_ARG_LIMIT) {
-        return HAL_ERROR;
-    }
-
-    HAL_StatusTypeDef st;
-    uint8_t tx[1 + FLASH_ARG_LIMIT];
-    tx[0] = command;
-
-    if (args && argc) {
-        memcpy(&tx[1], args, argc);
-    }
-
-    // we might not want to wait forever but I'm not sure what the other options do
-    tx_mutex_get(&spi1_mutex, TX_WAIT_FOREVER);
-    HAL_GPIO_WritePin(flash_CS_GPIO_Port, flash_CS_Pin, GPIO_PIN_RESET);
-    
-    st = HAL_SPI_Transmit(hspi, tx, 1 + argc, FLASH_SPI_TIMEOUT);
-
-    if (st != HAL_OK) {
-        HAL_GPIO_WritePin(flash_CS_GPIO_Port, flash_CS_Pin, GPIO_PIN_SET);
-        tx_mutex_put(&spi1_mutex);
-        return HAL_ERROR;
-    }
-
-    if (outlen && out) {
-        st = HAL_SPI_Receive(hspi, out, outlen, FLASH_SPI_TIMEOUT);
-    }
-    
-    HAL_GPIO_WritePin(flash_CS_GPIO_Port, flash_CS_Pin, GPIO_PIN_SET);
-    tx_mutex_put(&spi1_mutex);
-
-    return st;
-}
-
-void flash_thread_entry(ULONG initial_input)
+void flash_thread_entry(ULONG input)
 {
-    (void)initial_input;
-
-    w25q_t flash;
-    w25q_status_t ret;
-
-    ret = w25q_init(&flash, &hspi1, flash_CS_GPIO_Port, flash_CS_Pin);
-    printf("flash init return code: %d\n", ret);
-  
+    TX_PARAMETER_NOT_USED(input);
+    diagnostic_flash_init_status = w25q_init(&flash, &hspi1, flash_CS_GPIO_Port, flash_CS_Pin);
+    printf("FLASH init=%u JEDEC=%02X %02X %02X (expected EF 40 16)\n",
+           (unsigned)diagnostic_flash_init_status, (unsigned)flash.jedec_id[0],
+           (unsigned)flash.jedec_id[1], (unsigned)flash.jedec_id[2]);
+    storage_io io = {&flash, read_flash, program_flash, erase_flash, yield_flash};
+    diagnostic_storage_mount_status = storage_service_init(&io);
+    /* Read-only boot dump. No debug code erases/programs a scratch sector. */
+    uint8_t data[64];
+    if (diagnostic_flash_init_status == W25Q_OK && w25q_read(&flash, 0, data, sizeof(data)) == W25Q_OK) {
+        for (unsigned row = 0; row < sizeof(data); row += 16) {
+            char hex[49];
+            for (unsigned i = 0; i < 16; ++i) snprintf(hex + i*3, 4, "%02X ", (unsigned)data[row+i]);
+            printf("FLASH 0x%06X: %s\n", row, hex);
+        }
+    }
+    ULONG report = tx_time_get();
     for (;;) {
+        storage_service_step();
+        if ((ULONG)(tx_time_get() - report) >= TX_TIMER_TICKS_PER_SECOND) {
+            const storage *disk = storage_service_state();
+            if (disk->active != UINT32_MAX) {
+                const storage_session *session = &disk->sessions[disk->active];
+                printf("FLASH session=%lu durable=%lu bytes=%lu fault=%lu\n",
+                       (unsigned long)session->id, (unsigned long)session->records,
+                       (unsigned long)(session->records * 80), (unsigned long)disk->fault);
+                uint8_t record[80];
+                int status = storage_service_debug_last(record);
+                if (status == STORE_OK) {
+                    char hex[49];
+                    for (unsigned i = 0; i < 16; ++i)
+                        snprintf(hex + i*3, 4, "%02X ", (unsigned)record[24+i]);
+                    printf("FLASH readback type=%u payload[0:16]=%s\n", (unsigned)record[5], hex);
+                } else if (status != STORE_NOT_FOUND && status != STORE_STATE)
+                    printf("FLASH debug readback failed=%u\n", (unsigned)status);
+            }
+            report = tx_time_get();
+        }
         tx_thread_sleep(1);
     }
 }
 
-UINT create_flash_thread(TX_BYTE_POOL *byte_pool)
+UINT create_flash_thread(TX_BYTE_POOL *pool)
 {
-    TX_PARAMETER_NOT_USED(byte_pool);
-
-    UINT status = tx_thread_create(&flash_thread,
-                                   "Flash Thread",
-                                   flash_thread_entry,
-                                   0,
-                                   flash_stack,
-                                   FLASH_THREAD_STACK_SIZE,
-                                   FLASH_THREAD_PRIORITY,
-                                   FLASH_THREAD_PREEMPT_THRESHOLD,
-                                   TX_NO_TIME_SLICE,
-                                   TX_AUTO_START);
-
-    return status;
+    TX_PARAMETER_NOT_USED(pool);
+    return tx_thread_create(&flash_thread, "Flash/data", flash_thread_entry, 0,
+                            flash_stack, sizeof(flash_stack), 15, 15,
+                            TX_NO_TIME_SLICE, TX_AUTO_START);
 }

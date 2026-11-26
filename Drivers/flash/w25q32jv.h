@@ -25,7 +25,7 @@
 #define W25Q_CMD_CHIP_ERASE         0xC7U
 #define W25Q_CMD_JEDEC_ID           0x9FU
 #define W25Q_CMD_RELEASE_PD         0xABU
-#define W25Q_READ_CHUNK             65535U    /* HAL Limit - maximum value of an unsigned 16-bit integer (uint16_t)*/
+#define W25Q_READ_CHUNK             256U /* Bounded bus hold at the board's 8 MHz SPI clock. */
 
 /* 7.1.1 BUSY, 7.1.2 WEL - W25Q32JV Datasheet */
 #define W25Q_SR1_BUSY               0x01U /* S0 = bit 0 -> 1<<0 */
@@ -44,7 +44,6 @@ EFh Manufacturer ID
 #define W25Q_SPI_TIMEOUT_MS     5U 
 #define W25Q_LOCK_TIMEOUT_MS    5U
 #define W25Q_VERIFY_CHUNK 64U
-#define W25Q_READ_CHUNK 65535U
 #define MS_TO_TICKS(ms) ((ULONG)(((ULONG)(ms) * TX_TIMER_TICKS_PER_SECOND + 999UL) / 1000UL))
 
 typedef enum {
@@ -63,6 +62,7 @@ typedef struct {
     GPIO_TypeDef      *cs_port;
     uint16_t           cs_pin;
     uint8_t            jedec_id[3];  /* captured at init for status reporting */
+    uint8_t            initialized;
 } w25q_t;
 
 /* Pulls CS high, optionally verifies JEDEC ID */

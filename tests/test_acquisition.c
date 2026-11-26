@@ -212,12 +212,12 @@ int main(void)
     acquisition_state.sensor_busy = 0; acquisition_state.accepted = 2;
     acquisition_state.processed = 1; assert(!acquisition_stopped());
     acquisition_state.processed = 2; assert(acquisition_stopped());
-    for (unsigned i = 0; i < 129; ++i)
+    for (unsigned i = 0; i < 257; ++i)
         acquisition_publish(&encoded, &acquisition_state.raw_log_drops);
-    assert(records_to_data.used == 128 && acquisition_state.raw_log_drops == 1);
+    assert(records_to_data.used == 256 && acquisition_state.raw_log_drops == 1);
     assert(acquisition_events.flags & ACQUISITION_RECORD);
     assert(acquisition_start(2, 100000) == TX_NOT_AVAILABLE); /* Must drain old session. */
-    for (unsigned i = 0; i < 128; ++i)
+    for (unsigned i = 0; i < 256; ++i)
         assert(tx_queue_receive(&records_to_data, &processed, TX_NO_WAIT) == TX_SUCCESS);
     assert(acquisition_start(2, 100000) == TX_SUCCESS && acquisition_state.session == 2);
     assert(acquisition_state.accepted == 0 && acquisition_state.raw_log_drops == 0);
@@ -247,7 +247,7 @@ int main(void)
     assert(encoded.bytes[0] == 1 && processed.bytes[0] == 2 &&
            !memcmp(encoded.bytes + 4, processed.bytes + 4, 12));
     assert(acquisition_start(5, 100000) == TX_SUCCESS);
-    for (unsigned i = 0; i < 128; ++i)
+    for (unsigned i = 0; i < 256; ++i)
         acquisition_publish(&encoded, &acquisition_state.raw_log_drops);
     acquisition_state.initialized = 0; worker_mode = 1;
     if (!setjmp(worker_finished)) sensor_thread_entry(0);

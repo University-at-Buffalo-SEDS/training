@@ -5,7 +5,7 @@
 
 TX_QUEUE records_to_data, sensor_to_process;
 TX_EVENT_FLAGS_GROUP acquisition_events;
-static ULONG raw_memory[32 * 16], record_memory[128 * 16];
+static ULONG raw_memory[32 * 16], record_memory[256 * 16];
 volatile acquisition_status acquisition_state;
 float acquisition_reference_pa;
 volatile uint32_t acquisition_epoch;

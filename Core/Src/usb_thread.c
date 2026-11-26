@@ -170,7 +170,10 @@ VOID usb_thread_entry(ULONG input)
                 int ok = 1;
                 if (r.kind == USB_REPLY_DATA) {
                     char header[96];
-                    snprintf(header, sizeof(header), "DATA %lu %lu %lu %08lX\n",
+                    if (active.opcode == USB_CMD_META)
+                        snprintf(header, sizeof(header), "META %lu %lu %08lX\n",
+                                 (unsigned long)r.id, (unsigned long)r.length, (unsigned long)r.crc32);
+                    else snprintf(header, sizeof(header), "DATA %lu %lu %lu %08lX\n",
                              (unsigned long)r.id, (unsigned long)r.offset,
                              (unsigned long)r.length, (unsigned long)r.crc32);
                     ok = text(cdc, epoch, header);

@@ -39,9 +39,14 @@ UINT tx_queue_send(TX_QUEUE *q, VOID *p, ULONG wait)
     q->tail = (q->tail + 1) % q->depth; ++q->used;
     if (q == &usb_commands && mode != 4) {
         usb_command *c = p;
-        assert(c->opcode == USB_CMD_READ);
-        const uint8_t payload[] = {0, '\n', 0xff, 'O', 'K'};
-        assert(usb_reply(c, USB_REPLY_DATA, 1, payload, sizeof(payload)) == TX_SUCCESS);
+        if (c->opcode == USB_CMD_META) {
+            uint8_t metadata[256]={0}; memcpy(metadata,"DLH1",4);
+            assert(usb_reply(c, USB_REPLY_DATA, 1, metadata, sizeof(metadata)) == TX_SUCCESS);
+        } else {
+            assert(c->opcode == USB_CMD_READ);
+            const uint8_t payload[] = {0, '\n', 0xff, 'O', 'K'};
+            assert(usb_reply(c, USB_REPLY_DATA, 1, payload, sizeof(payload)) == TX_SUCCESS);
+        }
     }
     return TX_SUCCESS;
 }
@@ -143,6 +148,11 @@ int main(void)
     assert(!memcmp(output, "DATA 7 80 5 ", 12));
     assert(output_size > sizeof(expected));
     assert(!memcmp(output + output_size - sizeof(expected), expected, sizeof(expected)));
+    run(1, "META 7\n");
+    assert(!memcmp(output, "META 7 256 ", 11));
+    uint8_t *metadata_body=(uint8_t *)strchr((char *)output,'\n')+1;
+    assert(!memcmp(metadata_body,"DLH1",4));
+    assert(output_size==(size_t)(metadata_body-output)+257 && metadata_body[256]=='\n');
     uint32_t epoch = usb_connection;
     run(2, "READ 7 80 5\n");
     assert(writes == 1 && usb_connection != epoch && aborts);

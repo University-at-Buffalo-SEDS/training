@@ -13,12 +13,13 @@ from datalogger_client import DeviceError, U32_MAX, export_session, open_client
 class App:
     def __init__(self, root):
         self.root = root
-        root.title("Datalogger USB")
+        root.title("UBSEDS CrashNBurn Datalogger")
         root.geometry("1000x720")
         self.actions, self.events = queue.Queue(), queue.Queue()
         self.shutdown = threading.Event()
         self.port = tk.StringVar()
         self.state = tk.StringVar(value="Disconnected")
+        self.device_state = tk.StringVar(value="Device status unavailable")
         self.output = tk.StringVar(value=str(Path("captures").resolve()))
         self.live_enabled = tk.BooleanVar(value=False)
         self.live_text = tk.StringVar(value="Live sensors disabled")
@@ -30,11 +31,13 @@ class App:
         ttk.Button(top, text="Connect", command=self.connect).pack(side="left")
         ttk.Button(top, text="Disconnect", command=lambda: self.actions.put(("disconnect", None))).pack(side="left")
         ttk.Label(root, textvariable=self.state, padding=10).pack(anchor="w")
+        ttk.Label(root, textvariable=self.device_state, padding=(10, 0), wraplength=960, justify="left").pack(anchor="w")
         controls = ttk.Frame(root, padding=10)
         controls.pack(fill="x")
         for label, action in (("Status", "STATUS"), ("Start", "START"), ("Stop", "STOP"), ("List sessions", "LIST")):
             ttk.Button(controls, text=label, command=lambda a=action: self.actions.put((a, None))).pack(side="left")
         ttk.Button(controls, text="Download selected", command=self.download).pack(side="left")
+        ttk.Button(controls, text="Delete selected…", command=self.prepare_delete).pack(side="left")
         ttk.Button(controls, text="Open saved print log", command=self.view_log).pack(side="left")
         folder = ttk.Frame(root, padding=10)
         folder.pack(fill="x")
@@ -45,10 +48,24 @@ class App:
         ttk.Checkbutton(live, text="Live sensors (bypass flash)", variable=self.live_enabled,
                         command=lambda: self.actions.put(("live", self.live_enabled.get()))).pack(anchor="w")
         ttk.Label(live, textvariable=self.live_text, font="TkFixedFont", justify="left").pack(anchor="w")
-        self.sessions = ttk.Treeview(root, columns=("id", "generation", "length", "incomplete"), show="headings", height=7)
+        self.file_tabs = ttk.Notebook(root)
+        ordinary, launches = ttk.Frame(self.file_tabs), ttk.Frame(self.file_tabs)
+        self.file_tabs.add(ordinary, text="Rolling history")
+        self.file_tabs.add(launches, text="Protected launch / drop files")
+        self.file_tabs.pack(fill="x", padx=10)
+        self.sessions = ttk.Treeview(ordinary, columns=("id", "generation", "length", "incomplete"), show="headings", height=6)
         for column in self.sessions["columns"]:
             self.sessions.heading(column, text=column.capitalize())
-        self.sessions.pack(fill="x", padx=10)
+        self.sessions.pack(fill="x")
+        self.launches = ttk.Treeview(launches, columns=("id", "generation", "length", "reasons", "pre", "post", "state", "protected"),
+                                     show="headings", height=6)
+        for column, label, width in (("id", "ID", 55), ("generation", "Generation", 75),
+                                    ("length", "Export bytes", 100), ("reasons", "Trigger", 180),
+                                    ("pre", "Before", 75), ("post", "After / 300 s", 100),
+                                    ("state", "Capture", 100), ("protected", "Protected", 75)):
+            self.launches.heading(column, text=label)
+            self.launches.column(column, width=width)
+        self.launches.pack(fill="x")
         ttk.Label(root, text="USB prints — saved automatically while connected", padding=10).pack(anchor="w")
         frame = ttk.Frame(root)
         frame.pack(fill="both", expand=True, padx=10, pady=(0, 10))
@@ -74,15 +91,25 @@ class App:
             self.state.set("Install client/requirements.txt to connect")
 
     def download(self):
-        selected = self.sessions.selection()
+        launch = self.file_tabs.index("current") == 1
+        table = self.launches if launch else self.sessions
+        selected = table.selection()
         if selected:
-            sid = int(self.sessions.item(selected[0], "values")[0])
-            self.actions.put(("download", (sid, self.output.get())))
+            sid = int(table.item(selected[0], "values")[0])
+            self.actions.put(("download", (sid, self.output.get(), launch)))
 
     def view_log(self):
         path = filedialog.askopenfilename(initialdir=self.output.get(), filetypes=[("Print logs", "*.log"), ("All files", "*")])
         if path:
             self.append(f"\n--- Saved log: {path} ---\n" + Path(path).read_text(encoding="utf-8", errors="replace"))
+
+    def prepare_delete(self):
+        launch = self.file_tabs.index("current") == 1
+        table = self.launches if launch else self.sessions
+        selected = table.selection()
+        if selected:
+            sid = int(table.item(selected[0], "values")[0])
+            self.actions.put(("prepare_delete", (sid, launch)))
 
     def append(self, value):
         self.console.configure(state="normal")
@@ -101,10 +128,45 @@ class App:
             except queue.Empty:
                 break
             if kind == "sessions":
+                selected = self.sessions.selection()
+                old_id = self.sessions.item(selected[0], "values")[0] if selected else None
                 for item in self.sessions.get_children():
                     self.sessions.delete(item)
                 for s in value:
-                    self.sessions.insert("", "end", values=(s.id, s.generation, s.length, s.incomplete))
+                    item = self.sessions.insert("", "end", values=(s.id, s.generation, s.length, s.incomplete))
+                    if str(s.id) == str(old_id):
+                        self.sessions.selection_set(item)
+            elif kind == "status":
+                capture = (f"  Capturing: {value.get('remaining_s', '0')} s remaining"
+                           if value.get("state") == "CAPTURING" else
+                           "  Launch capture armed" if value.get("armed") == "1" else
+                           "  Launch capture unavailable: export/delete saved launches or wait for readiness"
+                           if value.get("events") == "1" else "")
+                self.device_state.set(
+                    f"{value.get('state', 'Unknown')}  Session: {value.get('active', '0')}  "
+                    f"Durable records: {value.get('durable', '0')}  "
+                    f"Flash data: {int(value.get('phys_bytes', '0')) / 1024:.1f} / 4096 KiB  "
+                    f"Storage drops: {value.get('storage_drop', '0')}{capture}")
+            elif kind == "launches":
+                selected = self.launches.selection()
+                old_id = self.launches.item(selected[0], "values")[0] if selected else None
+                for item in self.launches.get_children():
+                    self.launches.delete(item)
+                for entry in value:
+                    reasons = "+".join(name for bit, name in ((1, "Spike"), (2, "Free-fall"), (4, "Altitude")) if entry.reasons & bit)
+                    state = "Capturing" if entry.state == "CAPTURING" else "Incomplete" if entry.incomplete else "Complete"
+                    item = self.launches.insert("", "end", values=(entry.id, entry.generation, entry.length, reasons,
+                        f"{entry.pre_ms / 1000:.2f} s", f"{entry.post_ms / 1000:.2f} s", state, "Yes"))
+                    if str(entry.id) == str(old_id):
+                        self.launches.selection_set(item)
+            elif kind == "confirm_delete":
+                sid, generation, token, launch = value
+                if messagebox.askyesno("Delete flash session",
+                        f"Permanently delete {'PROTECTED launch/drop file' if launch else 'session'} {sid}?\n\n"
+                        "This erases its data from the board and cannot be undone.\n"
+                        "Confirm within 30 seconds; saved downloads remain on this computer.",
+                        icon="warning"):
+                    self.actions.put(("confirm_delete", (sid, generation, token)))
             elif kind == "error":
                 self.state.set(value)
                 messagebox.showerror("USB client", value)
@@ -126,9 +188,13 @@ class App:
         last_poll = 0
         last_live = 0
         live_enabled = False
+        last_status = last_operation = 0
+        last_events = 0
+        status_identity = None
+        operation = None
 
         def disconnect():
-            nonlocal client, raw, meta, live_file
+            nonlocal client, raw, meta, live_file, operation
             if client:
                 try:
                     client.close()
@@ -138,6 +204,7 @@ class App:
                 if f:
                     f.close()
             raw = meta = live_file = None
+            operation = None
 
         try:
             while not self.shutdown.is_set():
@@ -158,11 +225,15 @@ class App:
                         live_file = filename.with_name(filename.stem + "-sensors.jsonl").open("a", encoding="utf-8")
                         cursor = 0
                         last_live = 0
+                        last_status = 0
+                        last_events = 0
+                        status_identity = None
                         self.events.put(("state", f"Connected: {port}; saving prints to {filename}"))
                         self.events.put(("text", json.dumps(client.status(), indent=2) + "\n"))
                     elif action == "disconnect":
                         disconnect()
                         self.events.put(("state", "Disconnected"))
+                        self.events.put(("status", {"state": "Disconnected"}))
                         self.events.put(("live", "Disconnected"))
                     elif action == "live":
                         live_enabled = value
@@ -173,12 +244,50 @@ class App:
                             raise RuntimeError("Connect a USB CDC port first")
                         if action == "LIST":
                             self.events.put(("sessions", client.sessions()))
+                        elif action == "STATUS":
+                            self.events.put(("status", client.status()))
                         elif action == "download":
-                            sid, folder = value
-                            path = export_session(client, sid, Path(folder))
+                            sid, folder, launch = value
+                            path = export_session(client, sid, Path(folder), launch=launch)
                             self.events.put(("text", f"Saved {path}\n"))
+                            self.events.put(("sessions", client.sessions()))
+                        elif action == "prepare_delete":
+                            sid, launch = value
+                            client.command("STOP")
+                            fields = client.command(f"ERASE_PREPARE {sid}").split()
+                            if len(fields) != 5 or fields[:2] != ["OK", "ERASE_PREPARE"] or int(fields[2]) != sid:
+                                raise RuntimeError("Unexpected erase preparation response")
+                            self.events.put(("confirm_delete", (sid, int(fields[3]), int(fields[4]), launch)))
+                        elif action == "confirm_delete":
+                            sid, generation, token = value
+                            fields = client.command(f"ERASE_CONFIRM {sid} {generation} {token}").split()
+                            if len(fields) != 3 or fields[:2] != ["OK", "ERASE_CONFIRM"]:
+                                raise RuntimeError("Unexpected erase confirmation response")
+                            operation = int(fields[2]); last_operation = 0
+                            self.events.put(("text", f"Deleting session {sid}…\n"))
                         else:
                             self.events.put(("text", client.command(action) + "\n"))
+                    if client and time.monotonic() - last_status >= 1:
+                        status = client.status()
+                        self.events.put(("status", status))
+                        identity = (status.get("state"), status.get("active"))
+                        if status.get("metadata") == "1" and identity != status_identity:
+                            self.events.put(("sessions", client.sessions()))
+                        if status.get("events") == "1" and time.monotonic() - last_events >= 1:
+                            self.events.put(("launches", client.events()))
+                            last_events = time.monotonic()
+                        status_identity = identity
+                        last_status = time.monotonic()
+                    if client and operation is not None and time.monotonic() - last_operation >= 0.25:
+                        result = client.operation_status(operation)
+                        self.events.put(("text", f"Deletion {operation}: {result['state']} "
+                                                 f"{result['done']}/{result['total']} sectors\n"))
+                        if result["state"] in ("DONE", "FAILED"):
+                            if result["state"] == "FAILED":
+                                self.events.put(("error", f"Flash deletion failed: {result}"))
+                            operation = None
+                            self.events.put(("sessions", client.sessions()))
+                        last_operation = time.monotonic()
                     if client and time.monotonic() - last_poll >= 0.1:
                         start, end, lost, data = client.logs(cursor)
                         if data or start != cursor:

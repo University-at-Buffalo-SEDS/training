@@ -14,7 +14,7 @@ The STM32CubeMX project and CMake target are **`datalogger`**, using the CrashNB
 
 Read the [included datasheets](datasheets/README.md) and cite their revision and relevant sections in your SDD. The guide shows how queued raw/processed records become SPI flash bytes and how the data task reads them back for USB download, including write-enable, page boundaries, CRC/commit, address mapping and confirmed sector erasure.
 
-**The specified flash is 32 Mbit = 4 MiB, not 31 MB.** At the proposed rates, storage lasts about four minutes before additional overhead; validate the required recording duration.
+**The specified flash is 32 Mbit = 4 MiB, not 31 MB.** The compact 100 Hz implementation stores about 21 minutes before file overhead, or roughly 1 MiB per protected 20-second pre-trigger + five-minute post-trigger capture.
 
 ## Development dependencies
 
@@ -87,8 +87,10 @@ The list should show the intended STM32 DFU device and an internal-flash alterna
 Sensor and flash initialization report through `printf`. The USB CDC
 adapter now accepts the SDD's command lines instead of sending unsolicited
 `alive` lines. Send `STATUS` with DTR asserted for firmware, uptime, identity,
-and transport health. Until the flash/data worker is implemented and connected,
-STATUS reports `state=NOT_READY`; session commands return `ERR NOT_READY`.
+and transport health. Flash recovery runs at boot, followed by automatic sensor
+recording once identities and a recent pressure reference are available.
+STATUS reports LOGGING/CAPTURING/READY/FULL/FAULT and durable/drop counters; initial
+recovery can briefly report NOT_READY. Unknown media is never auto-erased.
 
 The [USB client](client/README.md) provides a Tk desktop app and CLI, binary-safe
 CRC-checked exports/resume, explicit deletion confirmation, and saved print
@@ -100,10 +102,14 @@ host captures remain available later.
 BMI088/BMP390 drivers and sensor/processing tasks are wired up. In the GUI,
 enable **Live sensors (bypass flash)** for current readings and saved JSON
 snapshots without a storage backend. CLI: `datalogger_client.py --port <port>
-live --follow`. The merged flash driver now initializes at boot; session recording
-and the data-worker integration remain to be implemented;
-[sensor integration](docs/sensor-integration.md) describes their start/stop,
-record-queue and shared-SPI interfaces.
+live --follow`. The flash/data worker stores compact raw data and reconstructs processed values
+for downloads. Normal history rolls automatically; acceleration spikes, freefall
+and barometric shifts protect 20 seconds before and five minutes after a trigger.
+The GUI lists these separately as protected launch/drop files, with trigger-relative
+CSV exports. Protected files require explicit deletion. Downloading stops normal
+recording; active captures finish first. Click Start to resume after a stop.
+USB identifies as **UBSEDS CrashNBurn Datalogger**. [Storage integration](docs/storage-integration.md) documents
+the durable format, boot behavior, recovery and hardware qualification limits.
 
 ```sh
 python3 -m pip install -r client/requirements.txt
@@ -157,7 +163,7 @@ Open `datalogger.ioc` in CubeMX. Keep the project name `datalogger`, CMake toolc
 
 SPI1 is full-duplex master, mode 0, 8-bit, MSB first, software NSS, currently 8 MHz from a 16 MHz peripheral clock. PA5 is SCK, PA6 MISO, and PA7 MOSI. PB11/PB12/PB13 select the accelerometer/gyroscope/barometer; **PB14 (`flash_CS`) selects the W25Q32JV flash**. All four active-low selects initialize high. PA13/PA14 preserve SWD.
 
-This is a buildable generated starter, not completed logger firmware. The filled SDD defines the intended sensor, processing, and data workers. Sensor/flash driver logic, durable logging, connecting the data worker to the USB queues, timing validation, and hardware tests remain implementation work. The USB transport and client are implemented; they do not fabricate storage sessions. The guide's example timing values are proposals; the IOC and reviewed generated code describe the current configuration.
+The sensor, processing, durable flash logger, recovery, USB storage commands and client are implemented on this branch. Simulated-device and power-loss tests exercise their behavior; hardware throughput, timing, power-loss and endurance qualification remain open. Preserve the shared 1 kHz timing configuration in `app_timing.h`, `tx_user.h` and the SysTick assembly across regeneration. The guide's example budgets are not measured hardware guarantees.
 
 To compile the filled SDD from this repository root:
 

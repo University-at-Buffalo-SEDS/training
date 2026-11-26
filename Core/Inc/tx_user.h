@@ -67,6 +67,8 @@
 #define TX_USER_H
 
 /* USER CODE BEGIN 1 */
+#include "app_timing.h"
+#define TX_TIMER_TICKS_PER_SECOND APP_THREADX_TICKS_PER_SECOND
 
 /* USER CODE END 1 */
 

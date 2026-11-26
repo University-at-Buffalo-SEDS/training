@@ -8,12 +8,16 @@ Four queue arrays & 11,264 bytes; queue objects, control events, mutex and statu
 USB chunks & Two 512-byte buffers: 1024 bytes plus descriptors.\\
 Flash rate & 100 raw + 100 processed records/s; 80 bytes each, page padding: about 17,067 occupied bytes/s.\\
 Ideal duration & About 245 s before metadata/session headers and other overhead. The board does not hold hours of logs at this rate.\\
-Backlog & 128 queued records absorb only 0.64 s at 200 records/s. A queue cannot cure sustained overload.\\
+Backlog & 256 queued records absorb about 1.28 s at 200 records/s. A queue cannot cure sustained overload.\\
 \end{SDDTable}
 The proposed stacks, queue arrays and chunk buffers total 26,624 bytes before middleware allocations and control objects. Do not simply add this to the generated RAM figure: pool replacement may remove or change existing allocations. Inspect the final map, stack high-water marks, middleware pools and interrupt/main stacks within 112 KiB.
 
-The generated port currently configures a 100 Hz SysTick and leaves the ThreadX tick constant at its default. The proposed design requires 1 kHz: update both the low-level reload and ThreadX tick definition consistently, then measure actual tick period and preserve the change across regeneration. A 100 Hz tick cannot establish the proposed 1 ms jitter measurement alone.
+The original generated port used a 100 Hz SysTick. The implementation now uses the shared 1 kHz configuration described below. Measure actual tick period and jitter and preserve the shared reload/constant across regeneration.
 
 Use absolute 10 ms deadlines with wrap-safe comparisons. On overrun count it and skip to a defined future release rather than running an unlimited catch-up loop. At 8 MHz a 260-byte transaction takes 260 microseconds on the wire, excluding mutex and software overhead; measure actual worst-case lock duration. Flash internal busy waits release the bus.
 
 Two program operations per record can consume 6 ms at the cited worst-case program time: 200 records/s can exceed sustained throughput before overhead. Qualification must justify actual rates, batching/commit changes, or a reduced logging rate. Pre-erase space in maintenance mode and preserve old sessions when full.
+
+Implementation update (24 November 2026): \texttt{app\_timing.h} now supplies a shared 1000 Hz definition to the ThreadX configuration and SysTick assembly. Debug linkage reports approximately 97,520 bytes of RAM and 124 KiB of internal flash for the compact logger; measure stack high-water marks and timing on the board. Earlier generated-build figures above are historical baselines.
+
+Compact logger update (24 November 2026): physical encoding 2 stores eight raw samples per 256-byte committed page, approximately 3200 bytes/s at 100 Hz. Processed records are reconstructed on export. A protected 20-second pre-trigger plus 300-second post-trigger capture occupies about 1 MiB. Ordinary 20-second segments roll automatically; protected events require explicit deletion. The earlier per-record throughput and duration figures describe the original design. The current output queue uses 16 KiB; final linker reports supersede the historical resource budgets above.

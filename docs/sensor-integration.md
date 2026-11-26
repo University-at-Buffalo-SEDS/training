@@ -32,9 +32,10 @@ valid before its first successful read.
 
 `acquisition_init()` creates the SPI mutex, acquisition event flags, sensor thread
 (priority 5, 2048-byte stack), processing thread (priority 10, 4096-byte stack),
-`sensor_to_process` (32 × 64 bytes) and `records_to_data` (128 × 64 bytes).
+`sensor_to_process` (32 × 64 bytes) and `records_to_data` (256 × 64 bytes).
 
-The future priority-15 storage task owns session controls:
+The priority-15 storage task owns session controls (implemented in
+`storage_service.c`; see [storage integration](storage-integration.md)):
 
 1. Identify/recover flash and establish the session ID and positive reference
    pressure. Persist versioned `sensors_metadata`: IDs, actual register settings
@@ -59,8 +60,8 @@ The future priority-15 storage task owns session controls:
 
 Sensor attempts both deliveries independently with `TX_NO_WAIT`. Processing
 produces one result per accepted input and attempts one nonblocking log delivery.
-No fake storage task drains queues or claims persistence. Session commands remain
-NOT_READY until storage registers USB readiness. STOP affects session records;
+The data task writes verified committed records before counting them durable.
+Session commands remain NOT_READY during initial recovery. STOP affects session records;
 live RAM snapshots continue updating.
 
 Sensors use `spi_bus_read`/`spi_bus_write`; the merged W25Q driver holds the same
@@ -104,6 +105,7 @@ queue pressure, start/stop and real worker drain, live framing, CRC and schema
 rejection under ASan/UBSan. Debug and Release builds check linkage/memory budgets.
 
 Hardware sensor values, SPI timing, USB and thread high-water marks still need
-a powered board. The current 100 Hz ThreadX tick gives 10 ms timestamp resolution;
-the SDD's 1 ms jitter target is not claimed. Flash storage/recovery, session
-metadata persistence and deletion belong to the remaining flash driver/data task.
+a powered board. The shared timing configuration now sets a 1000 Hz ThreadX
+tick, giving 1 ms timestamp resolution; measured jitter/throughput are not
+claimed. Flash persistence, recovery, metadata and deletion are implemented and
+tested against simulated media; hardware qualification remains required.

@@ -43,7 +43,9 @@ UINT usb_reply(const usb_command *c, unsigned kind, int final,
     if (!usb_command_is_current(c)) return TX_DELETED;
     if (length > USB_CHUNK_SIZE || !payload ||
         (kind != USB_REPLY_TEXT && kind != USB_REPLY_DATA) ||
-        (kind == USB_REPLY_DATA && (!final || !length || c->opcode != USB_CMD_READ || length != c->count)) ||
+        (kind == USB_REPLY_DATA && (!final || !length ||
+            !((c->opcode == USB_CMD_READ && length == c->count) ||
+              (c->opcode == USB_CMD_META && length == 256)))) ||
         (kind == USB_REPLY_TEXT && (!length || ((const char *)payload)[length - 1] != '\n')))
         return TX_SIZE_ERROR;
     TX_INTERRUPT_SAVE_AREA

@@ -60,6 +60,9 @@ int main(void)
     assert(feed(&p, "STOP\n", &c) == 1);
     assert(feed(&p, "LIVE\n", &c) == 1 && c.opcode == USB_CMD_LIVE);
     assert(feed(&p, "LIVE 1\n", &c) == -1);
+    assert(feed(&p, "META 7\n", &c) == 1 && c.opcode == USB_CMD_META && c.id == 7);
+    assert(feed(&p, "META 7 0\n", &c) == -1);
+    assert(feed(&p, "UNPIN 7\n", &c) == 1 && c.opcode == USB_CMD_UNPIN && c.id == 7);
     assert(usb_crc32("123456789", 9) == 0xcbf43926U);
     assert(usb_crc32("", 0) == 0);
     /* Deterministic arbitrary byte streams, including NUL, CR and long lines. */

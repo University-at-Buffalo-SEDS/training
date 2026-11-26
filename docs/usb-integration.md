@@ -14,7 +14,7 @@ additional generated USB application thread.
 | Processing | 10 / 10 | 4096 B | `Core/Src/processing_thread.c` |
 | USB adapter | 20 / 20 | 2048 B | `Core/Src/usb_thread.c` |
 | USB receive | 21 / 21 | 1024 B | `Core/Src/usb_rx_thread.c` |
-| Flash bring-up | 15 / 15 | 4096 B | `Core/Src/flash_thread.c` |
+| Flash/data | 15 / 15 | 4096 B | `Core/Src/flash_thread.c` |
 
 No worker uses a time slice. The extra receive worker is an implementation
 addition to the SDD's single USB adapter: this USBX version's synchronous OUT
@@ -87,15 +87,22 @@ CLOSE replies then invalidates the connection; reopen DTR before more commands.
 
 ## Connect the flash/data task
 
+The task is now implemented in `storage_service.c` and `storage.c`. See
+[storage integration](storage-integration.md) for automatic boot recording,
+the persistent format and recovery rules. The interface checklist below remains
+the contract used by this implementation. `META id` adds CRC-framed session
+metadata for the client; STATUS advertises `metadata=1`.
+
 The [sensor integration](sensor-integration.md) supplies shared SPI transactions,
 metadata, record queues and start/stop/drain counters. `LIVE` stays local to the
 adapter even after backend readiness. It serves a RAM snapshot, bypassing flash
 and record queues, with CRC-framed raw and processed envelopes.
 
 `Core/Inc/usb_service.h` is the boundary; USB never calls SPI or uses physical
-addresses. No session persistence is fabricated on this branch. Until the data
-worker registers readiness, STATUS describes `state=NOT_READY` and other session
-commands return `ERR NOT_READY storage_worker_unavailable`.
+addresses. During initial recovery, before the data worker registers readiness,
+STATUS describes `state=NOT_READY` and other session commands return
+`ERR NOT_READY storage_worker_unavailable`. Afterwards the backend serves
+recording, exports, deletion and storage-fault diagnostics.
 
 1. After flash identification and recovery, call `usb_backend_set_ready(1)`.
 2. On each bounded data-worker pass, compare your last connection with

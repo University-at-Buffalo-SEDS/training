@@ -1,3 +1,4 @@
+#include "app_timing.h"
 
 // by default AzureRTOS is configured to use static byte pool for
 // allocation, in case dynamic allocation is to be used, uncomment
@@ -67,7 +68,7 @@
 @
 @
 SYSTEM_CLOCK      =   16000000
-SYSTICK_CYCLES    =   ((SYSTEM_CLOCK / 100) -1)
+SYSTICK_CYCLES    =   ((SYSTEM_CLOCK / APP_THREADX_TICKS_PER_SECOND) -1)
 
     .text 32
     .align 4
@@ -289,7 +290,7 @@ __tx_DBGHandler:
 ;
 ;
 SYSTEM_CLOCK      EQU   16000000
-SYSTICK_CYCLES    EQU   ((SYSTEM_CLOCK / 100) -1)
+SYSTICK_CYCLES    EQU   ((SYSTEM_CLOCK / APP_THREADX_TICKS_PER_SECOND) -1)
 
 #ifdef USE_DYNAMIC_MEMORY_ALLOCATION
     RSEG    FREE_MEM:DATA
@@ -473,7 +474,7 @@ SysTick_Handler:
 @
 
 SYSTEM_CLOCK      =   16000000
-SYSTICK_CYCLES    =   ((SYSTEM_CLOCK / 100) -1)
+SYSTICK_CYCLES    =   ((SYSTEM_CLOCK / APP_THREADX_TICKS_PER_SECOND) -1)
 
     .text 32
     .align 4

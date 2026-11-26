@@ -1,11 +1,11 @@
 # Datalogger USB client
 
-The `usb` branch provides a CDC command transport, print capture, a Python CLI,
-and an optional Tk desktop app. The flash branch currently has an idle worker;
-session commands return `ERR NOT_READY` until the data worker implements the
-[queue contract](../docs/usb-integration.md). `STATUS`, `LOG_READ`, `LIVE`, and `CLOSE`
-work without that worker. Downloads/deletion are implemented in the client and
-tested with simulated device responses, not claimed as working flash firmware.
+The `usb-imu` branch provides the flash logger, CDC transport, print capture,
+Python CLI and Tk desktop app. Firmware recovers flash at boot, then starts a
+new recording session automatically once sensors and a recent valid pressure
+reference are available. Connecting/disconnecting the client does not stop it.
+See [storage integration](../docs/storage-integration.md) for the persistent
+format, recovery and hardware-validation limits.
 
 ## Run
 
@@ -20,16 +20,35 @@ python3 -m venv .venv
 ```
 
 The GUI also needs Tkinter (provided by a Python distribution with Tk support).
-Choose the STM32 CDC port, set a save folder, then Connect. The GUI displays
+Choose the UBSEDS CrashNBurn Datalogger CDC port, set a save folder, then Connect. The GUI displays
 prints and automatically appends their original bytes to a timestamped `.log`,
 with capture offsets, gaps, and timestamps in `.log.jsonl`. Open saved print log
 loads a previous capture. Status/Start/Stop/List and Download selected run in a
-background worker so the window stays responsive. Download selected stops
-logging before listing/exporting a closed session.
+background worker so the window stays responsive. Download selected stops normal
+logging before exporting. An active protected capture cannot be stopped or
+downloaded; other closed files can be downloaded while it continues.
+
+Device status shows recording state, active session, durable export records, actual flash data usage and storage drops. Click Start after a Stop/download to begin another
+session. Delete selected stops recording, asks for explicit confirmation and
+shows deletion progress. Successful downloads release their export pin. An
+interrupted read/export stays pinned until disconnect or 30 seconds of inactivity;
+reconnect before deleting if still pinned. Initial
+recovery can take several seconds. FAULT never formats unknown flash. Normal compact history rolls in roughly
+20-second files and older unprotected history is reclaimed automatically.
+Protected files and legacy recordings require explicit deletion.
+
+The **Protected launch/drop files** tab lists captures triggered by acceleration
+spikes, freefall or fresh barometric shifts. They preserve 20 seconds before and
+five minutes after the first trigger; later triggers combine reasons. Early-boot
+or interrupted captures are marked incomplete. At 100 Hz a full capture uses
+about 1 MiB of compact flash storage, with raw and processed data reconstructed
+into a larger export. The device shows capture progress and whether enough space
+remains to arm another capture. Export and explicitly delete protected files when
+capacity runs out. Launch CSV includes `trigger_relative_s` (normally −20 to +300).
 
 Enable **Live sensors (bypass flash)** to view sensor-task readings directly.
-This works before flash is implemented and stays independent of stored sessions
-later. The GUI polls five snapshots per second and saves raw counts, SI values,
+This stays independent of stored sessions and flash faults. The GUI polls five
+snapshots per second and saves raw counts, SI values,
 flags, errors and timestamps in a `*-sensors.jsonl` file beside the print capture.
 Invalid readings are labeled; old snapshots show STALE. Live snapshots are not
 a lossless 100 Hz recording. Downloads pause polling.
@@ -48,9 +67,11 @@ The CLI supports the full command set, including confirmed deletion:
 .venv/bin/python client/datalogger_client.py --port /dev/cu.usbmodemXXXX logs --follow --output captures/prints.log
 .venv/bin/python client/datalogger_client.py --port /dev/cu.usbmodemXXXX live --follow --output captures/sensors.jsonl
 .venv/bin/python client/datalogger_client.py --port /dev/cu.usbmodemXXXX list
+.venv/bin/python client/datalogger_client.py --port /dev/cu.usbmodemXXXX events
 .venv/bin/python client/datalogger_client.py --port /dev/cu.usbmodemXXXX start
 .venv/bin/python client/datalogger_client.py --port /dev/cu.usbmodemXXXX stop
 .venv/bin/python client/datalogger_client.py --port /dev/cu.usbmodemXXXX download 7 --output captures
+.venv/bin/python client/datalogger_client.py --port /dev/cu.usbmodemXXXX download 8 --launch --output captures
 .venv/bin/python client/datalogger_client.py --port /dev/cu.usbmodemXXXX erase 7
 .venv/bin/python client/datalogger_client.py --port /dev/cu.usbmodemXXXX op-status 12
 ```
@@ -77,11 +98,18 @@ prints continue accumulating on the board and may wrap before polling resumes.
 
 ## Export and resume
 
-Export performs STATUS → STOP → LIST → repeated READ. Each chunk has its session,
+Export performs STATUS → STOP → LIST/EVENTS → repeated READ. During an active
+protected capture, STOP is omitted and only closed files may be exported. Each chunk has its session,
 offset, length, and CRC32 verified before saving. The output includes the raw
 `.bin` and a JSON manifest with device identity, session generation, logical
-length, incomplete flag, and per-chunk CRCs. It does not decode records or claim
-that chunk CRC validation proves every record's commit/CRC.
+length, incomplete flag, and per-chunk CRCs.
+
+Current firmware advertises `metadata=1`. The client retrieves and validates
+the session header, saves its original bytes and decoded sensor configuration,
+factory trim and pressure reference in the manifest, and validates each durable
+record's schema/CRC/commit. It generates `.csv` with raw counts and processed
+SI values, flags, errors and relative altitude. Invalid channels are blank.
+Older firmware without metadata support retains binary-only export.
 
 An interrupted download leaves a `.part` file. Reconnect and rerun the same
 download command to resume. The client rechecks the session ID, generation,
@@ -93,7 +121,9 @@ local STATUS does. Malformed/partial frames and failed CRCs require reconnect.
 Export never erases data. `erase` obtains a preparation token and then asks you
 to type `DELETE <session> <generation>`. Confirmation can expire while waiting;
 prepare again if needed. Completion is queried through `op-status`, not assumed
-from acceptance. The GUI deliberately leaves deletion to this explicit CLI flow.
+from acceptance. The GUI provides the same preparation/confirmation flow and
+polls OP_STATUS until completion or failure. The CLI stops recording before
+preparation; use `op-status` to check its returned operation ID.
 
 ## Verify without hardware
 

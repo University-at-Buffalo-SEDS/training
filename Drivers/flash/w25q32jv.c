@@ -3,6 +3,12 @@
 #include "tx_api.h"         
 #include <string.h>
 
+static int device_valid(const w25q_t *dev)
+{
+    return dev && dev->hspi && dev->cs_port && dev->cs_pin &&
+        !(dev->cs_pin & (dev->cs_pin - 1U));
+}
+
 /* Acquires the SPI bus
  * Takes spi1_mutex, then forces the other chip selects high so only one device can be selected at a time
  * @param dev - pointer to the W25Q32JV device
@@ -133,7 +139,7 @@ static w25q_status_t wait_not_busy(w25q_t *dev, uint32_t timeout_ms)
     w25q_status_t st;
     uint32_t t0 = HAL_GetTick();
     /* While runtime is less than timeout, read status register 1, check if status is OK */
-    do {
+    for (;;) {
         st = read_sr1(dev, &sr);
         if (st != W25Q_OK) {
             return st;
@@ -141,10 +147,11 @@ static w25q_status_t wait_not_busy(w25q_t *dev, uint32_t timeout_ms)
         if (!(sr & W25Q_SR1_BUSY)) {
             return W25Q_OK;
         }
-        /* Places the current thread at the end of the ready list for its priority */
-        tx_thread_relinquish();
-    } while ((HAL_GetTick() - t0) < timeout_ms);
-    return W25Q_ERR_TIMEOUT;
+        if ((HAL_GetTick() - t0) >= timeout_ms) return W25Q_ERR_TIMEOUT;
+        /* Sleep lets lower-priority USB run. Check status again on waking,
+         * before timeout, to tolerate scheduler granularity at the deadline. */
+        tx_thread_sleep(1);
+    }
 }
 /* Checks if a given address range is valid for the W25Q32JV flash chip
  * @param addr - Starting address
@@ -253,7 +260,7 @@ w25q_status_t w25q_read_jedec_id(w25q_t *dev, uint8_t id[3])
 {
     uint8_t cmd = W25Q_CMD_JEDEC_ID; 
     w25q_status_t st;
-    if (!dev || !id) { 
+    if (!device_valid(dev) || !id) {
         return W25Q_ERR_PARAM; 
     }
     st = bus_acquire(dev); // Acquires the SPI bus, returns W25Q_ERR_LOCK if the mutex is not available in time
@@ -287,16 +294,25 @@ w25q_status_t w25q_init(w25q_t *dev, SPI_HandleTypeDef *hspi, GPIO_TypeDef *cs_p
     w25q_status_t st;
 
     /* Guard against NULL pointers */
-    if (!dev || !hspi || !cs_port) { 
+    if (!dev || !hspi || !cs_port || !cs_pin || (cs_pin & (cs_pin - 1U))) {
         return W25Q_ERR_PARAM; 
     }
 
-    dev -> hspi    = hspi;
-    dev -> cs_port = cs_port;  
-    dev -> cs_pin  = cs_pin; 
+    *dev = (w25q_t){.hspi = hspi, .cs_port = cs_port, .cs_pin = cs_pin};
 
     cs_high(dev); /* CS Deselected */
-    HAL_Delay(W25Q_T_PUW_MIN_MS);   /* tPUW before the first write instruction, needs minimum of 5ms delay (9.3 - W25Q32JV Datasheet) */
+    tx_thread_sleep(MS_TO_TICKS(W25Q_T_PUW_MIN_MS));
+    st = bus_acquire(dev);
+    if (st != W25Q_OK) return st;
+    uint8_t wake = W25Q_CMD_RELEASE_PD;
+    cs_low(dev);
+    st = tx(dev, &wake, 1);
+    cs_high(dev);
+    bus_release(dev);
+    if (st != W25Q_OK) return st;
+    tx_thread_sleep(1); /* Exceeds the 3 us release-from-power-down delay. */
+    st = wait_not_busy(dev, W25Q_T_SE_MAX_MS);
+    if (st != W25Q_OK) return st;
 
     st = w25q_read_jedec_id(dev, id); 
     if (st != W25Q_OK) { 
@@ -313,6 +329,7 @@ w25q_status_t w25q_init(w25q_t *dev, SPI_HandleTypeDef *hspi, GPIO_TypeDef *cs_p
         return W25Q_ERR_ID; 
     }
 
+    dev->initialized = 1;
     return W25Q_OK;
 }
 
@@ -329,11 +346,13 @@ w25q_status_t w25q_read(w25q_t *dev, uint32_t addr, uint8_t *buf, size_t len)
 {
     w25q_status_t st;
     /* Validate pointers and verify (addr, addr + len) stays within the 4 MB chip boundary */
-    if (!dev || !buf || !w25q_range_ok(addr, len)) { 
+    if (!device_valid(dev) || !buf || !w25q_range_ok(addr, len)) {
         return W25Q_ERR_PARAM; 
     }
 
-    /* Poll Status Register until any prior erase/program finishes, 500ms max for a sector erase */
+    if (!dev->initialized) return W25Q_ERR_ID;
+    if (!len) return W25Q_OK;
+    /* Poll Status Register until any prior erase/program finishes. */
     st = wait_not_busy(dev, W25Q_T_SE_MAX_MS); //  
     if (st != W25Q_OK) { 
         return st; 
@@ -382,9 +401,10 @@ w25q_status_t w25q_page_program(w25q_t *dev, uint32_t addr, const uint8_t *buf, 
     w25q_status_t st;
 
     /* Check for NULL pointers and valid length */
-    if (!dev || !buf || len == 0 || len > W25Q_PAGE_SIZE) { 
+    if (!device_valid(dev) || !buf || len == 0 || len > W25Q_PAGE_SIZE) {
         return W25Q_ERR_PARAM; 
     }
+    if (!dev->initialized) return W25Q_ERR_ID;
     /* Check if the address and length are within the valid range */
     if (!w25q_range_ok(addr, len)) { 
         return W25Q_ERR_PARAM; 
@@ -476,9 +496,10 @@ w25q_status_t w25q_sector_erase(w25q_t *dev, uint32_t addr)
     w25q_status_t st;
 
     /* Check for NULL pointer */
-    if (!dev) {
+    if (!device_valid(dev)) {
         return W25Q_ERR_PARAM; 
     }
+    if (!dev->initialized) return W25Q_ERR_ID;
     /* Check if the address is within the valid range (0x000000 to 0x3FFFFF) */
     if (!w25q_range_ok(addr, 1)) { 
         return W25Q_ERR_PARAM; 
