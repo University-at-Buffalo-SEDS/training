@@ -82,13 +82,19 @@ before programming. No normal command issues chip erase.
 
 ### Compact page (DRP2)
 
+Every compact data page starts with its own 24-byte header. The header tells
+the reader how many sample slots to decode, which physical recording owns the
+page, and how to reconstruct the samples' original times and sequence numbers.
+The recording's separate DLH1 file header stores sensor configuration, factory
+trim, and the reference pressure used to regenerate processed values.
+
 | Offset | Bytes | Field |
 |---:|---:|---|
 | 0 | 4 | `DRP2` |
 | 4 | 1 | Version 2 |
 | 5 | 1 | Sample count, 1–8 |
-| 6 | 1 | Trigger reason bits: acceleration 1, freefall 2, barometer 4 |
-| 7 | 1 | Trigger sample index |
+| 6 | 1 | Trigger reason mask. Zero means no marker. Bits 0, 1, and 2 mean acceleration, freefall, and barometer. |
+| 7 | 1 | Zero-based trigger sample index. If the mask is nonzero, the index must be below the sample count. Otherwise it must be zero. |
 | 8 | 4 | Base sequence |
 | 12 | 8 | Base source timestamp, microseconds |
 | 20 | 4 | Physical source ID |
@@ -96,12 +102,35 @@ before programming. No normal command issues chip erase.
 | 248 | 4 | CRC of bytes 0–247 |
 | 252 | 4 | Commit word |
 
-Each sample contains flags (1 byte), three accel int16 counts (6), three gyro
-int16 counts (6), pressure ADC uint24 (3), temperature ADC uint24 (3), barometer
-age uint32 microseconds (4), errors (1), timestamp delta uint16 milliseconds (2),
-and sequence delta uint16 (2). Pages flush early when a delta cannot fit.
-Acquisition timestamps have millisecond resolution. Export reconstructs sensor
-records and validates each contributing page before returning bytes.
+Sample slot `i` starts at page offset `24 + 28 × i`. The sample count can be
+less than eight when recording stops, a trigger forces a write, or a sample
+cannot fit the current page's delta range. Unused slots are zero-filled and
+covered by the CRC.
+
+| Offset within slot | Bytes | Field |
+|---:|---:|---|
+| 0 | 1 | Sensor validity and freshness flags |
+| 1 | 6 | Accelerometer X, Y, Z as signed 16-bit counts |
+| 7 | 6 | Gyroscope X, Y, Z as signed 16-bit counts |
+| 13 | 3 | Unsigned raw pressure ADC value |
+| 16 | 3 | Unsigned raw temperature ADC value |
+| 19 | 4 | Barometer reading age in microseconds |
+| 23 | 1 | Sensor error flags |
+| 24 | 2 | Unsigned timestamp delta in milliseconds |
+| 26 | 2 | Unsigned sequence delta |
+
+The first sample has zero deltas. For later samples, add the stored sequence
+delta to the page's base sequence using 32-bit arithmetic, and add
+`timestamp_delta_ms × 1000` to the base timestamp. For example, with base
+sequence 4200 and base timestamp 42,000,000 µs, deltas 3 and 30 ms decode to
+sequence 4203 at 42,030,000 µs. Storing both deltas preserves gaps in sampling
+without assuming that every slot is exactly 10 ms after the previous one.
+
+On a trigger, the worker commits the page containing the trigger marker before
+updating the event catalog. If power fails between those writes, recovery can
+read the marker, recover its sample time using the same delta calculation, and
+rebuild the protected event. The page must have a valid CRC and a zero commit
+word before recovery or export uses it.
 
 ### Journals and headers
 

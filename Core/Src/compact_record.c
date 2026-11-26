@@ -34,6 +34,8 @@ uint64_t record_timestamp(const logger_record *r)
 
 void compact_page_init(uint8_t b[256], uint32_t session)
 {
+    /* Zero the count, trigger fields and unused slots. The first append
+     * supplies the base sequence and time. */
     memset(b, 0, 256);
     memcpy(b, "DRP2", 4);
     b[4] = 2;
@@ -62,10 +64,14 @@ int compact_page_add(uint8_t b[256], const logger_record *r, unsigned trigger)
         return 0;
     unsigned index = b[5];
     uint8_t *d = b + 24 + index * 28;
+    /* Copy flags and six signed 16-bit axis counts from the raw envelope. */
     d[0] = (uint8_t)get32(p);
     memcpy(d + 1, p + 4, 12);
+    /* The sensor ADC readings occupy 24 bits each. The raw envelope pads them
+     * to 32 bits, so copy only their three significant little-endian bytes. */
     memcpy(d + 13, p + 16, 3);
     memcpy(d + 16, p + 20, 3);
+    /* Preserve the barometer age, error flags, and deltas from the page base. */
     memcpy(d + 19, p + 24, 4);
     d[23] = (uint8_t)get32(p + 28);
     put16(d + 24, (uint16_t)((time - first) / 1000));
@@ -108,6 +114,7 @@ int compact_page_raw(const uint8_t b[256], unsigned index, logger_record *r)
         s.gyro[i] = (int16_t)get16(p + 7 + i * 2);
     }
     uint64_t time = get32(b + 12) | (uint64_t)get32(b + 16) << 32;
+    /* Restore the raw envelope's full sequence number and microsecond time. */
     record_raw(r, get32(b + 8) + get16(p + 26), time + (uint64_t)get16(p + 24) * 1000, &s);
     return 1;
 }
